@@ -33,6 +33,7 @@ ENV/
 
 # Environment variables
 .env
+.streamlit/secrets.toml
 
 # OS
 .DS_Store
@@ -46,4 +47,5 @@ Thumbs.db
 # Project specific
 pdfs/
 *.db
-chroma/ 
+chroma/
+*.pdf 

@@ -1,11 +1,6 @@
 import os
 from typing import Dict
 from openai import OpenAI
-from langchain_openai import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
 from dotenv import load_dotenv
 import streamlit as st
 

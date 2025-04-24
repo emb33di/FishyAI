@@ -14,17 +14,26 @@ st.set_page_config(
     layout="wide"
 )
 
+# Debug: Print available secrets
+st.write("Available secrets:", st.secrets)
+
 # Get API key from either Streamlit secrets or .env file
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+st.write("API Key found:", bool(api_key))
+
 if not api_key:
     st.error("OPENAI_API_KEY not found. Please set it in Streamlit secrets or .env file.")
     st.stop()
 
 # Initialize session state
 if 'agent' not in st.session_state:
-    st.session_state.agent = PropertyLawAgent("pdfs")
-    success, message = st.session_state.agent.load_pdfs()
-    st.session_state.initial_load_message = message
+    try:
+        st.session_state.agent = PropertyLawAgent("pdfs")
+        success, message = st.session_state.agent.load_pdfs()
+        st.session_state.initial_load_message = message
+    except Exception as e:
+        st.error(f"Error initializing agent: {str(e)}")
+        st.stop()
 
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []

@@ -19,11 +19,14 @@ class PropertyLawAgent:
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in Streamlit secrets or .env file")
         
-        # Initialize OpenAI client with just the API key
-        self.client = OpenAI(api_key=api_key)
+        # Set the API key in environment
+        os.environ["OPENAI_API_KEY"] = api_key
+        
+        # Initialize OpenAI client
+        self.client = OpenAI()
         
         self.pdf_directory = pdf_directory
-        self.embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+        self.embeddings = OpenAIEmbeddings()
         self.vectorstore = None
         self.qa_chain = None
         self.chat_history = []

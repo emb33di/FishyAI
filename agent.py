@@ -47,8 +47,8 @@ class PropertyLawAgent:
             context = "\n\n".join([f"From {doc['source']}:\n{doc['content']}" for doc in relevant_docs])
             
             # Create a system message that includes context
-            system_message = f"""You are a property law assistant. Use the following context to answer the question. 
-            If the answer cannot be found in the context, say so. Always cite your sources.
+            system_message = f"""You are a property law exam assistant. Use the following context to answer the questions about property law doctrine. 
+            If the answer cannot be found in the context, say so. Always cite your sources and specifically the case from which the information is derived.
             
             Context:
             {context}
@@ -64,7 +64,7 @@ class PropertyLawAgent:
             # Get response from OpenAI
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4-turbo",
                     messages=messages,
                     temperature=0.7,
                     max_tokens=1000

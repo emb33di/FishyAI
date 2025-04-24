@@ -17,6 +17,9 @@ class PropertyLawAgent:
         # Set API key in environment
         os.environ["OPENAI_API_KEY"] = api_key
         
+        # Initialize OpenAI client
+        self.client = OpenAI()
+        
         self.pdf_directory = pdf_directory
         self.chat_history = []
         self.loaded_pdfs = []
@@ -41,9 +44,6 @@ class PropertyLawAgent:
     def ask_question(self, question: str) -> Dict[str, str]:
         """Ask a question about property law and get an answer."""
         try:
-            # Initialize OpenAI client
-            client = OpenAI()
-            
             # Create a system message that includes context about the PDFs
             system_message = f"You are a property law assistant. You have access to the following documents: {', '.join(self.loaded_pdfs)}. Please provide accurate and helpful answers based on these documents."
             
@@ -55,7 +55,7 @@ class PropertyLawAgent:
             ]
             
             # Get response from OpenAI
-            response = client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=messages,
                 temperature=0.7,

@@ -10,3 +10,5 @@ tiktoken>=0.5.2
 langchain>=0.0.352
 pydantic-settings>=2.0.0
 langchain-text-splitters>=0.0.1
+gunicorn==21.2.0
+streamlit==1.32.0

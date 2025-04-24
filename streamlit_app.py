@@ -42,14 +42,8 @@ if 'chat_history' not in st.session_state:
 st.title("🐟 FishyAI - Your Property Law Assistant")
 st.markdown("""
 This AI assistant can help you with questions about property law in health data. 
-The assistant has been pre-loaded with relevant property law documents and can provide detailed answers with sources.
+Ask any question and get detailed answers with sources.
 """)
-
-# Display available PDFs
-st.sidebar.header("Available Documents")
-pdf_files = [f for f in os.listdir("pdfs") if f.endswith(".pdf")]
-for pdf in pdf_files:
-    st.sidebar.markdown(f"- {pdf}")
 
 # Display initial load message
 if 'initial_load_message' in st.session_state:

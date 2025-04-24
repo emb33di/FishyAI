@@ -39,6 +39,7 @@ class PDFProcessor:
             splits = self.text_splitter.split_documents(documents)
             
             # Create vector store
+            os.makedirs("chroma_db", exist_ok=True)
             self.vector_store = Chroma.from_documents(
                 documents=splits,
                 embedding=self.embeddings,
@@ -66,4 +67,4 @@ class PDFProcessor:
             ]
         except Exception as e:
             st.error(f"Error retrieving documents: {str(e)}")
-            return [] 
+            return []

@@ -22,11 +22,15 @@ class PropertyLawAgent:
         # Initialize OpenAI client with error handling
         try:
             self.client = OpenAI(api_key=api_key)
-            # Test the client with a simple request
+            # Test the client with a simple request - but don't output to streamlit in CLI mode
             self.client.models.list()
-            st.write("OpenAI client initialized and tested successfully")
+            if 'streamlit' in sys.modules:
+                st.write("OpenAI client initialized and tested successfully")
         except Exception as e:
-            st.error(f"Error initializing OpenAI client: {str(e)}")
+            if 'streamlit' in sys.modules:
+                st.error(f"Error initializing OpenAI client: {str(e)}")
+            else:
+                print(f"Error initializing OpenAI client: {str(e)}")
             raise
         
         self.pdf_directory = pdf_directory

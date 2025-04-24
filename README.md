@@ -1,4 +1,4 @@
-# Property Law AI Assistant
+# FishyAI - Property Law Assistant
 
 An AI-powered assistant for Property Law exam preparation that uses your PDF materials as context for answering questions.
 
@@ -47,4 +47,4 @@ Type your questions about Property Law, and the AI will provide answers based on
 
 ## Note
 
-Make sure to keep your API keys secure and never commit them to the repository. 
+Make sure to keep your API keys secure and never commit them to the repository.

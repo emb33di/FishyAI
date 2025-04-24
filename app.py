@@ -4,7 +4,7 @@ import time
 
 def print_welcome():
     print("\n" + "="*50)
-    print("Welcome to the Property Law AI Assistant!")
+    print("Welcome to FishyAI - Your Property Law Assistant!")
     print("="*50)
     print("\nCommands:")
     print("- Type your question and press Enter to get an answer")
@@ -35,7 +35,7 @@ def main():
                 continue
                 
             if question.lower() == 'quit':
-                print("\nThank you for using the Property Law AI Assistant. Goodbye!")
+                print("\nThank you for using FishyAI. Goodbye!")
                 break
                 
             if question.lower() == 'reload':

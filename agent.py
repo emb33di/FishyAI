@@ -1,18 +1,24 @@
 import os
 from typing import List, Tuple, Dict
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.chat_models import ChatOpenAI
+from openai import OpenAI
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
 
 class PropertyLawAgent:
     def __init__(self, pdf_directory: str):
+        # Load environment variables
         load_dotenv()
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY not found in .env file")
+        
+        # Initialize OpenAI client
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
         
         self.pdf_directory = pdf_directory
         self.embeddings = OpenAIEmbeddings()
@@ -56,8 +62,12 @@ class PropertyLawAgent:
                 embedding=self.embeddings
             )
             
-            # Initialize QA chain
-            llm = ChatOpenAI(temperature=0)
+            # Initialize QA chain with GPT-4
+            llm = ChatOpenAI(
+                model_name="gpt-4",
+                temperature=0,
+                max_tokens=2000
+            )
             self.qa_chain = ConversationalRetrievalChain.from_llm(
                 llm=llm,
                 retriever=self.vectorstore.as_retriever(search_kwargs={"k": 3}),
@@ -102,3 +112,11 @@ class PropertyLawAgent:
     def get_loaded_pdfs(self) -> List[str]:
         """Return list of currently loaded PDFs."""
         return self.loaded_pdfs
+
+    def get_embeddings(self, texts):
+        """Get embeddings for a list of texts using direct OpenAI API call"""
+        response = self.client.embeddings.create(
+            model="text-embedding-ada-002",
+            input=texts
+        )
+        return [embedding.embedding for embedding in response.data]

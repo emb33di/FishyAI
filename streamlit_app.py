@@ -3,6 +3,8 @@ from agent import PropertyLawAgent
 import time
 import os
 from dotenv import load_dotenv
+import tempfile
+import shutil
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -17,12 +19,21 @@ st.set_page_config(
 # Debug: Print available secrets
 st.write("Available secrets:", st.secrets)
 
-# Get API key from either Streamlit secrets or .env file
-api_key = st.secrets.get("secrets", {}).get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+# Get API key from environment variable first, then fall back to Streamlit secrets
+api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("secrets", {}).get("OPENAI_API_KEY")
 st.write("API Key found:", bool(api_key))
 
 if not api_key:
-    st.error("OPENAI_API_KEY not found. Please set it in Streamlit secrets or .env file.")
+    st.error("""
+    OPENAI_API_KEY not found. Please set it as an environment variable:
+    
+    For local development:
+    1. Create a .env file in the root directory
+    2. Add: OPENAI_API_KEY=your_api_key_here
+    
+    For production:
+    Set the OPENAI_API_KEY environment variable in your deployment platform
+    """)
     st.stop()
 
 # Initialize session state
@@ -41,16 +52,44 @@ if 'chat_history' not in st.session_state:
 # Title and description
 st.title("🐟 FishyAI - Your Property Law Assistant")
 st.markdown("""
-This AI assistant can help you with questions about property law in health data. 
-Ask any question and get detailed answers with sources.
+This AI assistant can help you with questions about property law. 
+Upload your PDF documents and ask questions to get detailed answers with sources.
 """)
 
-# Display initial load message
-if 'initial_load_message' in st.session_state:
-    st.info(st.session_state.initial_load_message)
+# File upload section
+st.header("📚 Upload Documents")
+uploaded_files = st.file_uploader(
+    "Upload your property law PDFs",
+    type=['pdf'],
+    accept_multiple_files=True
+)
+
+if uploaded_files:
+    # Create pdfs directory if it doesn't exist
+    os.makedirs("pdfs", exist_ok=True)
+    
+    # Save uploaded files
+    for uploaded_file in uploaded_files:
+        with open(os.path.join("pdfs", uploaded_file.name), "wb") as f:
+            f.write(uploaded_file.getbuffer())
+    
+    # Process PDFs
+    with st.spinner("Processing PDFs..."):
+        success, message = st.session_state.agent.load_pdfs()
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
+
+# Display loaded PDFs
+loaded_pdfs = st.session_state.agent.get_loaded_pdfs()
+if loaded_pdfs:
+    st.subheader("📖 Loaded Documents")
+    for pdf in loaded_pdfs:
+        st.write(f"- {pdf}")
 
 # Chat interface
-st.header("Chat")
+st.header("💬 Chat")
 
 # Display chat history
 for message in st.session_state.chat_history:
@@ -62,7 +101,7 @@ for message in st.session_state.chat_history:
                 st.markdown(f"- {source}")
 
 # Chat input
-if prompt := st.chat_input("Ask your question about property law in health data"):
+if prompt := st.chat_input("Ask your question about property law"):
     # Add user message to chat history
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     

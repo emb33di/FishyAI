@@ -2,6 +2,10 @@ import streamlit as st
 from agent import PropertyLawAgent
 import time
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development)
+load_dotenv()
 
 # Set page config
 st.set_page_config(
@@ -9,6 +13,12 @@ st.set_page_config(
     page_icon="🐟",
     layout="wide"
 )
+
+# Get API key from either Streamlit secrets or .env file
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("OPENAI_API_KEY not found. Please set it in Streamlit secrets or .env file.")
+    st.stop()
 
 # Initialize session state
 if 'agent' not in st.session_state:

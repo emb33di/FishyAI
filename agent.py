@@ -7,21 +7,25 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from dotenv import load_dotenv
+import streamlit as st
 
 class PropertyLawAgent:
     def __init__(self, pdf_directory: str):
         # Load environment variables
         load_dotenv()
-        if not os.getenv("OPENAI_API_KEY"):
-            raise ValueError("OPENAI_API_KEY not found in .env file")
+        
+        # Try to get API key from Streamlit secrets first, then from .env
+        api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found in Streamlit secrets or .env file")
         
         # Initialize OpenAI client
         self.client = OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY")
+            api_key=api_key
         )
         
         self.pdf_directory = pdf_directory
-        self.embeddings = OpenAIEmbeddings()
+        self.embeddings = OpenAIEmbeddings(openai_api_key=api_key)
         self.vectorstore = None
         self.qa_chain = None
         self.chat_history = []

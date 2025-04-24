@@ -22,22 +22,15 @@ if 'chat_history' not in st.session_state:
 # Title and description
 st.title("🐟 FishyAI - Your Property Law Assistant")
 st.markdown("""
-This AI assistant can help you with questions about property law. 
-Upload your PDF documents and ask questions to get detailed answers with sources.
+This AI assistant can help you with questions about property law in health data. 
+The assistant has been pre-loaded with relevant property law documents and can provide detailed answers with sources.
 """)
 
-# Sidebar for PDF management
-with st.sidebar:
-    st.header("PDF Management")
-    if st.button("Reload PDFs"):
-        success, message = st.session_state.agent.load_pdfs()
-        st.session_state.initial_load_message = message
-        st.success(message if success else "Error: " + message)
-    
-    if st.button("Clear Chat History"):
-        st.session_state.chat_history = []
-        st.session_state.agent.chat_history = []
-        st.success("Chat history cleared!")
+# Display available PDFs
+st.sidebar.header("Available Documents")
+pdf_files = [f for f in os.listdir("pdfs") if f.endswith(".pdf")]
+for pdf in pdf_files:
+    st.sidebar.markdown(f"- {pdf}")
 
 # Display initial load message
 if 'initial_load_message' in st.session_state:
@@ -56,7 +49,7 @@ for message in st.session_state.chat_history:
                 st.markdown(f"- {source}")
 
 # Chat input
-if prompt := st.chat_input("Ask your question about property law"):
+if prompt := st.chat_input("Ask your question about property law in health data"):
     # Add user message to chat history
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     

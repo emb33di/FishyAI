@@ -14,10 +14,16 @@ class PropertyLawAgent:
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in Streamlit secrets or .env file")
         
-        # Initialize OpenAI client with minimal configuration
+        # Validate API key format
+        if not api_key.startswith("sk-"):
+            raise ValueError("Invalid API key format. API key should start with 'sk-'")
+        
+        # Initialize OpenAI client with error handling
         try:
             self.client = OpenAI(api_key=api_key)
-            st.write("OpenAI client initialized successfully")
+            # Test the client with a simple request
+            self.client.models.list()
+            st.write("OpenAI client initialized and tested successfully")
         except Exception as e:
             st.error(f"Error initializing OpenAI client: {str(e)}")
             raise

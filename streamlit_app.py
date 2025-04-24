@@ -18,7 +18,7 @@ st.set_page_config(
 st.write("Available secrets:", st.secrets)
 
 # Get API key from either Streamlit secrets or .env file
-api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+api_key = st.secrets.get("secrets", {}).get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 st.write("API Key found:", bool(api_key))
 
 if not api_key:

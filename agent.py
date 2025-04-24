@@ -14,11 +14,13 @@ class PropertyLawAgent:
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in Streamlit secrets or .env file")
         
-        # Initialize OpenAI client with explicit configuration
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.openai.com/v1"
-        )
+        # Initialize OpenAI client with minimal configuration
+        try:
+            self.client = OpenAI(api_key=api_key)
+            st.write("OpenAI client initialized successfully")
+        except Exception as e:
+            st.error(f"Error initializing OpenAI client: {str(e)}")
+            raise
         
         self.pdf_directory = pdf_directory
         self.chat_history = []
@@ -55,14 +57,17 @@ class PropertyLawAgent:
             ]
             
             # Get response from OpenAI
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000
-            )
-            
-            answer = response.choices[0].message.content
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                answer = response.choices[0].message.content
+            except Exception as e:
+                st.error(f"Error calling OpenAI API: {str(e)}")
+                raise
             
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})

@@ -8,3 +8,4 @@ langchain-openai==0.0.2
 chromadb==0.4.22
 tiktoken==0.5.2
 langchain-community>=0.0.1
+faiss-cpu>=1.7.0

@@ -5,6 +5,8 @@ import os
 from dotenv import load_dotenv
 import tempfile
 import shutil
+import json
+import uuid
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -113,6 +115,12 @@ if not api_key:
     """)
     st.stop()
 
+# Create a unique user ID and store it in session state
+if 'user_id' not in st.session_state:
+    # Use browser cookie or session ID if available
+    # For simplicity, we generate a UUID and store it in session state
+    st.session_state.user_id = str(uuid.uuid4())
+
 # Initialize session state
 if 'agent' not in st.session_state:
     try:
@@ -124,8 +132,21 @@ if 'agent' not in st.session_state:
         st.error(f"Error initializing agent: {str(e)}")
         st.stop()
 
+# Define the function to load chat history
+def load_chat_history(user_id):
+    """Load chat history from file based on user ID"""
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            st.warning(f"Error loading chat history: {str(e)}")
+    return []
+
+# Load chat history from file instead of initializing empty
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state.chat_history = load_chat_history(st.session_state.user_id)
 
 # Title and description
 st.title("🐟 FishyAI - Your Property Law Assistant")
@@ -150,17 +171,24 @@ with st.sidebar:
     else:
         st.write("No documents loaded")
     
+    # Add API cost tracking information
+    st.subheader("API Usage")
+    if hasattr(st.session_state.agent, 'get_cost_summary'):
+        cost_data = st.session_state.agent.get_cost_summary()
+        st.write(f"Total cost: ${cost_data['total_cost']:.6f}")
+    
     # Add clear chat button
     if st.button("Clear Chat History"):
         st.session_state.chat_history = []
+        save_chat_history(st.session_state.user_id, [])  # Save empty history
         st.rerun()
 
 # Display initial loading message if exists
 if 'initial_load_message' in st.session_state:
     st.info(st.session_state.initial_load_message)
 
-# Function to display custom formatted messages
-def display_message(role, content, sources=None, response_time=None):
+# Update the function to display custom formatted messages
+def display_message(role, content, sources=None, response_time=None, cost_info=None):
     if role == "user":
         message_class = "user-message"
         prefix = "🧑‍🎓 You"
@@ -183,10 +211,26 @@ def display_message(role, content, sources=None, response_time=None):
         </div>
         """, unsafe_allow_html=True)
     
+    footer_elements = []
+    
     if response_time is not None:
+        footer_elements.append(f"Response time: {response_time:.2f} seconds")
+    
+    if cost_info is not None:
+        tokens = cost_info.get("tokens", {})
+        if tokens:
+            total_tokens = tokens.get("total", tokens.get("input", 0) + tokens.get("output", 0))
+            footer_elements.append(f"Tokens: {total_tokens}")
+        
+        query_cost = cost_info.get("cost", {}).get("query_cost")
+        if query_cost is not None:
+            footer_elements.append(f"Cost: ${query_cost:.6f}")
+    
+    if footer_elements:
+        footer_html = " | ".join(footer_elements)
         st.markdown(f"""
         <div class="response-time">
-            Response time: {response_time:.2f} seconds
+            {footer_html}
         </div>
         """, unsafe_allow_html=True)
     
@@ -201,10 +245,22 @@ for message in st.session_state.chat_history:
         response_time=message.get("response_time")
     )
 
+# Define the function to save chat history
+def save_chat_history(user_id, chat_history):
+    """Save chat history to file based on user ID"""
+    os.makedirs("pdfs", exist_ok=True)
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    try:
+        with open(history_file, 'w') as f:
+            json.dump(chat_history, f)
+    except Exception as e:
+        st.warning(f"Error saving chat history: {str(e)}")
+
 # Chat input
 if prompt := st.chat_input("Ask your question about property law..."):
     # Add user message to chat history
     st.session_state.chat_history.append({"role": "user", "content": prompt})
+    save_chat_history(st.session_state.user_id, st.session_state.chat_history)
     
     # Display user message with custom formatting
     display_message(role="user", content=prompt)
@@ -215,18 +271,52 @@ if prompt := st.chat_input("Ask your question about property law..."):
         result = st.session_state.agent.ask_question(prompt)
         response_time = time.time() - start_time
     
+    # Extract cost information from result if available
+    cost_info = None
+    if "tokens" in result or "cost" in result:
+        cost_info = {
+            "tokens": result.get("tokens", {}),
+            "cost": result.get("cost", {})
+        }
+    
     # Display assistant message with custom formatting
     display_message(
         role="assistant", 
         content=result["answer"],
         sources=result["sources"],
-        response_time=response_time
+        response_time=response_time,
+        cost_info=cost_info
     )
     
-    # Add assistant response to chat history
+    # Add assistant response to chat history with cost info
     st.session_state.chat_history.append({
         "role": "assistant",
         "content": result["answer"],
         "sources": result["sources"],
-        "response_time": response_time
+        "response_time": response_time,
+        "cost_info": cost_info
     })
+    
+    # Save the updated chat history
+    save_chat_history(st.session_state.user_id, st.session_state.chat_history)
+
+def load_chat_history(user_id):
+    """Load chat history from file based on user ID"""
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            st.warning(f"Error loading chat history: {str(e)}")
+    return []
+
+def save_chat_history(user_id, chat_history):
+    """Save chat history to file based on user ID"""
+    os.makedirs("pdfs", exist_ok=True)
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    try:
+        with open(history_file, 'w') as f:
+            json.dump(chat_history, f)
+    except Exception as e:
+        st.warning(f"Error saving chat history: {str(e)}")

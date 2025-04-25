@@ -12,7 +12,7 @@ class PropertyLawAgent:
         load_dotenv()
         
         # Get API key from environment variable first, then fall back to Streamlit secrets
-        api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("secrets", {}).get("OPENAI_API_KEY")
+        api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables or Streamlit secrets")
         
@@ -22,7 +22,7 @@ class PropertyLawAgent:
         
         # Initialize OpenAI client with error handling
         try:
-            self.client = OpenAI(api_key=api_key, http_client=None)  # This disables any custom HTTP client
+            self.client = OpenAI(api_key=api_key)  # This disables any custom HTTP client
             # Test the client with a simple request - but don't output to streamlit in CLI mode
             self.client.models.list()
             if 'streamlit' in sys.modules:

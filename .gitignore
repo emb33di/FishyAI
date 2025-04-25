@@ -61,4 +61,4 @@ Thumbs.db
 pdfs/
 *.db
 chroma/
-*.pdf 
+*.pdf .streamlit/secrets.toml

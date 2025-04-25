@@ -3,7 +3,7 @@ from typing import List, Dict
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS  # Change from Chroma to FAISS
 import streamlit as st
 
 class PDFProcessor:
@@ -38,13 +38,15 @@ class PDFProcessor:
             # Split documents into chunks
             splits = self.text_splitter.split_documents(documents)
             
-            # Create vector store
-            os.makedirs("chroma_db", exist_ok=True)
-            self.vector_store = Chroma.from_documents(
+            # Create vector store using FAISS instead of Chroma
+            self.vector_store = FAISS.from_documents(
                 documents=splits,
-                embedding=self.embeddings,
-                persist_directory="chroma_db"
+                embedding=self.embeddings
             )
+            
+            # Save the vector store to disk
+            os.makedirs("faiss_index", exist_ok=True)
+            self.vector_store.save_local("faiss_index")
             
             return True, f"Successfully processed {len(pdf_files)} PDFs: {', '.join(pdf_files)}"
             
@@ -54,7 +56,14 @@ class PDFProcessor:
     def get_relevant_documents(self, query: str, k: int = 3) -> List[Dict]:
         """Retrieve relevant documents for a query."""
         if not self.vector_store:
-            return []
+            # Try to load from disk if it exists
+            if os.path.exists("faiss_index"):
+                try:
+                    self.vector_store = FAISS.load_local("faiss_index", self.embeddings)
+                except Exception:
+                    return []
+            else:
+                return []
         
         try:
             docs = self.vector_store.similarity_search(query, k=k)

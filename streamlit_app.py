@@ -16,12 +16,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Debug: Print available secrets
-st.write("Available secrets:", st.secrets)
-
 # Get API key from environment variable first, then fall back to Streamlit secrets
 api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("secrets", {}).get("OPENAI_API_KEY")
-st.write("API Key found:", bool(api_key))
 
 if not api_key:
     st.error("""
@@ -133,4 +129,4 @@ if prompt := st.chat_input("Ask your question about property law"):
         "role": "assistant",
         "content": result["answer"],
         "sources": result["sources"]
-    }) 
+    })

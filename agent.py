@@ -1,4 +1,5 @@
 import os
+import sys  # Add this line
 from typing import Dict
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -16,12 +17,12 @@ class PropertyLawAgent:
             raise ValueError("OPENAI_API_KEY not found in environment variables or Streamlit secrets")
         
         # Validate API key format
-        if not api_key.startswith("sk-"):
-            raise ValueError("Invalid API key format. API key should start with 'sk-'")
+        if not (api_key.startswith("sk-") or api_key.startswith("sk-proj-")):
+            raise ValueError("Invalid API key format. API key should start with 'sk-' or 'sk-proj-'")
         
         # Initialize OpenAI client with error handling
         try:
-            self.client = OpenAI(api_key=api_key)
+            self.client = OpenAI(api_key=api_key, http_client=None)  # This disables any custom HTTP client
             # Test the client with a simple request - but don't output to streamlit in CLI mode
             self.client.models.list()
             if 'streamlit' in sys.modules:

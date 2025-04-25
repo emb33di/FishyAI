@@ -1,9 +1,11 @@
 import os
+import pickle
+import hashlib
 from typing import List, Dict
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS  # Change from Chroma to FAISS
+from langchain_community.vectorstores import FAISS
 import streamlit as st
 
 class PDFProcessor:
@@ -17,8 +19,65 @@ class PDFProcessor:
         )
         self.vector_store = None
         
+        # Cache-related paths
+        self.cache_dir = os.path.join(pdf_directory, ".cache")
+        self.metadata_path = os.path.join(self.cache_dir, "cache_metadata.pkl")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Load cache metadata if it exists
+        self.cache_metadata = self._load_cache_metadata()
+        
+    def _load_cache_metadata(self):
+        """Load cache metadata or create new if not exists"""
+        if os.path.exists(self.metadata_path):
+            try:
+                with open(self.metadata_path, "rb") as f:
+                    return pickle.load(f)
+            except Exception:
+                pass
+        return {"pdfs": {}}
+    
+    def _save_cache_metadata(self):
+        """Save cache metadata to disk"""
+        with open(self.metadata_path, "wb") as f:
+            pickle.dump(self.cache_metadata, f)
+    
+    def _get_pdf_hash(self, pdf_path):
+        """Calculate hash of PDF file for change detection"""
+        hasher = hashlib.md5()
+        with open(pdf_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    
+    def _is_cache_valid(self):
+        """Check if cache is valid by comparing file hashes"""
+        pdf_files = [f for f in os.listdir(self.pdf_directory) if f.endswith('.pdf')]
+        
+        # Check if cached files match current files
+        cached_pdfs = set(self.cache_metadata["pdfs"].keys())
+        current_pdfs = set(pdf_files)
+        
+        if cached_pdfs != current_pdfs:
+            return False
+        
+        # Check if any PDF has been modified
+        for pdf_file in pdf_files:
+            pdf_path = os.path.join(self.pdf_directory, pdf_file)
+            current_hash = self._get_pdf_hash(pdf_path)
+            cached_hash = self.cache_metadata["pdfs"].get(pdf_file)
+            
+            if current_hash != cached_hash:
+                return False
+        
+        # Check if FAISS index exists
+        if not os.path.exists("faiss_index"):
+            return False
+            
+        return True
+        
     def load_and_process_pdfs(self) -> tuple[bool, str]:
-        """Load and process all PDFs in the specified directory."""
+        """Load and process all PDFs in the specified directory, using cache when possible."""
         try:
             if not os.path.exists(self.pdf_directory):
                 os.makedirs(self.pdf_directory)
@@ -28,17 +87,28 @@ class PDFProcessor:
             if not pdf_files:
                 return False, f"No PDF files found in '{self.pdf_directory}' directory. Please add your PDF files."
             
+            # Check if we can use cache
+            if self._is_cache_valid():
+                try:
+                    self.vector_store = FAISS.load_local("faiss_index", self.embeddings)
+                    return True, f"Using cached data for {len(pdf_files)} PDFs: {', '.join(pdf_files)}"
+                except Exception as e:
+                    st.warning(f"Cache load failed: {str(e)}. Reprocessing PDFs...")
+            
             # Process each PDF
             documents = []
             for pdf_file in pdf_files:
                 pdf_path = os.path.join(self.pdf_directory, pdf_file)
                 loader = PyPDFLoader(pdf_path)
                 documents.extend(loader.load())
+                
+                # Update cache metadata with current file hash
+                self.cache_metadata["pdfs"][pdf_file] = self._get_pdf_hash(pdf_path)
             
             # Split documents into chunks
             splits = self.text_splitter.split_documents(documents)
             
-            # Create vector store using FAISS instead of Chroma
+            # Create vector store using FAISS
             self.vector_store = FAISS.from_documents(
                 documents=splits,
                 embedding=self.embeddings
@@ -47,6 +117,9 @@ class PDFProcessor:
             # Save the vector store to disk
             os.makedirs("faiss_index", exist_ok=True)
             self.vector_store.save_local("faiss_index")
+            
+            # Save updated cache metadata
+            self._save_cache_metadata()
             
             return True, f"Successfully processed {len(pdf_files)} PDFs: {', '.join(pdf_files)}"
             

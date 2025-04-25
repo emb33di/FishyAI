@@ -69,7 +69,7 @@ class PropertyLawAgent:
             # Get response from OpenAI
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4-turbo",
+                    model="gpt-4.1-mini",  # Changed from "gpt-4-turbo" to "gpt-4.1-mini"
                     messages=messages,
                     temperature=0.7,
                     max_tokens=1000

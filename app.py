@@ -1,75 +1,162 @@
-from agent import PropertyLawAgent
+import streamlit as st
 import os
 import time
+from agent import PropertyLawAgent
 
-def print_welcome():
-    print("\n" + "="*50)
-    print("Welcome to FishyAI - Your Property Law Assistant!")
-    print("="*50)
-    print("\nCommands:")
-    print("- Type your question and press Enter to get an answer")
-    print("- Type 'reload' to reload PDFs")
-    print("- Type 'clear' to clear chat history")
-    print("- Type 'quit' to exit")
-    print("\nNote: Your chat history will be maintained until you clear it or quit.")
-    print("="*50 + "\n")
+# Page configuration
+st.set_page_config(
+    page_title="FishyAI - Property Law Assistant",
+    page_icon="⚖️",
+    layout="wide"
+)
+
+# Custom CSS for a prettier interface
+st.markdown("""
+<style>
+    .chat-message {
+        padding: 1.5rem;
+        border-radius: 0.8rem;
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: row;
+    }
+    .chat-message.user {
+        background-color: #e0f7fa;
+        border-bottom-right-radius: 0.2rem;
+    }
+    .chat-message.assistant {
+        background-color: #f3f4f6;
+        border-bottom-left-radius: 0.2rem;
+    }
+    .chat-message .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        margin-right: 1rem;
+    }
+    .chat-message .message {
+        flex: 1;
+    }
+    .stTextInput {
+        padding-bottom: 2rem;
+    }
+    .main-header {
+        text-align: center;
+        padding: 1.5rem 0;
+        border-bottom: 2px solid #f0f2f6;
+        margin-bottom: 2rem;
+    }
+    .source-box {
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-top: 0.5rem;
+        border-left: 4px solid #0d6efd;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+def display_message(role, content):
+    """Display a chat message with the appropriate styling."""
+    if role == "user":
+        avatar = "👤"
+        message_class = "user"
+    else:
+        avatar = "🤖"
+        message_class = "assistant"
+    
+    st.markdown(f"""
+    <div class="chat-message {message_class}">
+        <div class="avatar">{avatar}</div>
+        <div class="message">{content}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def main():
-    # Initialize the agent with the PDFs directory
-    pdf_directory = "pdfs"
-    agent = PropertyLawAgent(pdf_directory)
+    # Header
+    st.markdown("<div class='main-header'><h1>⚖️ FishyAI - Property Law Assistant</h1></div>", unsafe_allow_html=True)
     
-    print_welcome()
+    # Initialize session state
+    if "agent" not in st.session_state:
+        # Get PDF directory - adjust this path as needed
+        pdf_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pdfs")
+        st.session_state.agent = PropertyLawAgent(pdf_directory)
+        st.session_state.chat_history = []
+        st.session_state.pdfs_loaded = False
     
-    # Initial PDF loading
-    success, message = agent.load_pdfs()
-    print(message)
-    if not success:
-        print("\nPlease add your PDF files to the 'pdfs' directory and type 'reload' when ready.")
+    # Sidebar for PDF management
+    with st.sidebar:
+        st.header("PDF Documents")
+        
+        if not st.session_state.pdfs_loaded:
+            if st.button("Load PDF Documents"):
+                with st.spinner("Loading and processing PDFs..."):
+                    success, message = st.session_state.agent.load_pdfs()
+                    if success:
+                        st.success(message)
+                        st.session_state.pdfs_loaded = True
+                    else:
+                        st.error(message)
+        else:
+            st.success("PDFs loaded successfully!")
+            
+        # Display loaded PDFs
+        loaded_pdfs = st.session_state.agent.get_loaded_pdfs()
+        if loaded_pdfs:
+            st.write("Loaded documents:")
+            for pdf in loaded_pdfs:
+                st.write(f"- {pdf}")
+        
+        # Reset chat button
+        if st.button("Clear Chat History"):
+            st.session_state.chat_history = []
+            st.session_state.agent.chat_history = []
+            st.experimental_rerun()
     
-    while True:
-        try:
-            question = input("\nYour question: ").strip()
+    # Display chat history
+    for message in st.session_state.chat_history:
+        display_message(message["role"], message["content"])
+        if "sources" in message and message["sources"]:
+            st.markdown(
+                f"""<div class="source-box">
+                <strong>Sources:</strong> {', '.join(message["sources"])}
+                </div>""",
+                unsafe_allow_html=True
+            )
+    
+    # Chat input
+    with st.container():
+        user_input = st.text_input("Ask a question about property law:", key="user_input")
+        
+        if user_input:
+            # Display user message
+            display_message("user", user_input)
             
-            if not question:
-                continue
-                
-            if question.lower() == 'quit':
-                print("\nThank you for using FishyAI. Goodbye!")
-                break
-                
-            if question.lower() == 'reload':
-                print("\nReloading PDFs...")
-                success, message = agent.load_pdfs()
-                print(message)
-                continue
-                
-            if question.lower() == 'clear':
-                agent.chat_history = []
-                print("\nChat history cleared.")
-                continue
+            # Add to chat history
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
             
-            print("\nThinking...")
-            start_time = time.time()
+            # Get response from agent
+            with st.spinner("Thinking..."):
+                if not st.session_state.pdfs_loaded:
+                    time.sleep(1)  # Simulate thinking
+                    answer = "Please load the PDF documents first using the button in the sidebar."
+                    sources = []
+                else:
+                    response = st.session_state.agent.ask_question(user_input)
+                    answer = response["answer"]
+                    sources = response["sources"]
             
-            result = agent.ask_question(question)
+            # Add to chat history
+            st.session_state.chat_history.append({
+                "role": "assistant", 
+                "content": answer,
+                "sources": sources
+            })
             
-            print("\nAnswer:", result["answer"])
-            
-            if result["sources"]:
-                print("\nSources:")
-                for source in result["sources"]:
-                    print(f"- {source}")
-            
-            end_time = time.time()
-            print(f"\nResponse time: {end_time - start_time:.2f} seconds")
-            
-        except KeyboardInterrupt:
-            print("\n\nExiting gracefully...")
-            break
-        except Exception as e:
-            print(f"\nError: {str(e)}")
-            print("Please try again or type 'quit' to exit.")
+            # Clear the input box and rerun to update the display
+            st.session_state.user_input = ""
+            st.experimental_rerun()
 
 if __name__ == "__main__":
     main()

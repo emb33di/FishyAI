@@ -58,7 +58,6 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-pdfs/
 *.db
 chroma/
 *.pdf .streamlit/secrets.toml

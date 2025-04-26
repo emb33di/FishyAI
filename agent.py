@@ -68,7 +68,7 @@ class PropertyLawAgent:
                 {"role": "user", "content": question}
             ]
             
-            model = "gpt-4.1-nano"
+            model = "gpt-4.1-mini"
             
             # Get response from OpenAI
             try:

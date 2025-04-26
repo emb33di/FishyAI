@@ -171,12 +171,6 @@ with st.sidebar:
     else:
         st.write("No documents loaded")
     
-    # Add API cost tracking information
-    st.subheader("API Usage")
-    if hasattr(st.session_state.agent, 'get_cost_summary'):
-        cost_data = st.session_state.agent.get_cost_summary()
-        st.write(f"Total cost: ${cost_data['total_cost']:.6f}")
-    
     # Add clear chat button
     if st.button("Clear Chat History"):
         st.session_state.chat_history = []

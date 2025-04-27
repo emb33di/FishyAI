@@ -15,21 +15,21 @@ def get_cached_embeddings():
     return OpenAIEmbeddings()
 
 @st.cache_resource
-def load_vectorstore_from_disk(embedding_model):
+def load_vectorstore_from_disk(_embedding_model):
     """Load the vector store from disk once and cache it globally"""
     if os.path.exists("faiss_index"):
         try:
-            return FAISS.load_local("faiss_index", embedding_model)
+            return FAISS.load_local("faiss_index", _embedding_model)
         except Exception as e:
             st.error(f"Error loading vector store: {str(e)}")
     return None
 
 @st.cache_resource
-def create_and_save_vectorstore(documents, embedding_model):
+def create_and_save_vectorstore(documents, _embedding_model):
     """Create vector store from documents and cache it"""
     vector_store = FAISS.from_documents(
         documents=documents,
-        embedding=embedding_model
+        embedding=_embedding_model
     )
     os.makedirs("faiss_index", exist_ok=True)
     vector_store.save_local("faiss_index")

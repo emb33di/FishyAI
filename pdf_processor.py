@@ -25,10 +25,10 @@ def load_vectorstore_from_disk(_embedding_model):
     return None
 
 @st.cache_resource
-def create_and_save_vectorstore(documents, _embedding_model):
+def create_and_save_vectorstore(_documents, _embedding_model):
     """Create vector store from documents and cache it"""
     vector_store = FAISS.from_documents(
-        documents=documents,
+        documents=_documents,
         embedding=_embedding_model
     )
     os.makedirs("faiss_index", exist_ok=True)

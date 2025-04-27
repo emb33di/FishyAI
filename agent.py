@@ -56,7 +56,7 @@ class PropertyLawAgent:
             # Create a system message that includes context
             system_message = f"""You are a property law exam assistant. Use the following context that includes pdfs of cases and classroom teaching slides to answer the questions about property law doctrine. 
             If the answer cannot be found in the context, say so. From each pdf extract the legal case names and cite the cases used at the end of a sentence in parenthesis. 
-            Look through all relevant sources covering the question, and synthesize a brief effective answer in a organized manner.
+            Look through all relevant sources covering the question, and synthesize a brief effective answer in the format of legal brief writing.
             
             Context:
             {context}

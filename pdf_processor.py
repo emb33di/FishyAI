@@ -8,16 +8,44 @@ from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import streamlit as st
 
+# Global cache for embeddings model
+@st.cache_resource(show_spinner="Loading embedding model...")
+def get_cached_embeddings():
+    """Create a cached instance of OpenAI embeddings to reuse across sessions"""
+    return OpenAIEmbeddings()
+
+@st.cache_resource
+def load_vectorstore_from_disk(embedding_model):
+    """Load the vector store from disk once and cache it globally"""
+    if os.path.exists("faiss_index"):
+        try:
+            return FAISS.load_local("faiss_index", embedding_model)
+        except Exception as e:
+            st.error(f"Error loading vector store: {str(e)}")
+    return None
+
+@st.cache_resource
+def create_and_save_vectorstore(documents, embedding_model):
+    """Create vector store from documents and cache it"""
+    vector_store = FAISS.from_documents(
+        documents=documents,
+        embedding=embedding_model
+    )
+    os.makedirs("faiss_index", exist_ok=True)
+    vector_store.save_local("faiss_index")
+    return vector_store
+
 class PDFProcessor:
     def __init__(self, pdf_directory: str):
         self.pdf_directory = pdf_directory
-        self.embeddings = OpenAIEmbeddings()
+        # Use the cached embedding model
+        self.embeddings = get_cached_embeddings()
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
             length_function=len,
         )
-        self.vector_store = None
+        self.vector_store = load_vectorstore_from_disk(self.embeddings)
         
         # Cache-related paths
         self.cache_dir = os.path.join(pdf_directory, ".cache")
@@ -89,11 +117,9 @@ class PDFProcessor:
             
             # Check if we can use cache
             if self._is_cache_valid():
-                try:
-                    self.vector_store = FAISS.load_local("faiss_index", self.embeddings)
+                self.vector_store = load_vectorstore_from_disk(self.embeddings)
+                if self.vector_store:
                     return True, f"Using cached data for {len(pdf_files)} PDFs: {', '.join(pdf_files)}"
-                except Exception as e:
-                    st.warning(f"Cache load failed: {str(e)}. Reprocessing PDFs...")
             
             # Process each PDF
             documents = []
@@ -108,15 +134,8 @@ class PDFProcessor:
             # Split documents into chunks
             splits = self.text_splitter.split_documents(documents)
             
-            # Create vector store using FAISS
-            self.vector_store = FAISS.from_documents(
-                documents=splits,
-                embedding=self.embeddings
-            )
-            
-            # Save the vector store to disk
-            os.makedirs("faiss_index", exist_ok=True)
-            self.vector_store.save_local("faiss_index")
+            # Create and save vector store (cached)
+            self.vector_store = create_and_save_vectorstore(splits, self.embeddings)
             
             # Save updated cache metadata
             self._save_cache_metadata()
@@ -129,16 +148,14 @@ class PDFProcessor:
     def get_relevant_documents(self, query: str, k: int = 3) -> List[Dict]:
         """Retrieve relevant documents for a query."""
         if not self.vector_store:
-            # Try to load from disk if it exists
-            if os.path.exists("faiss_index"):
-                try:
-                    self.vector_store = FAISS.load_local("faiss_index", self.embeddings)
-                except Exception:
-                    return []
-            else:
+            # Use cached loading
+            self.vector_store = load_vectorstore_from_disk(self.embeddings)
+            if not self.vector_store:
                 return []
         
         try:
+            # When similarity_search is called, no new embeddings are computed
+            # for documents that are already embedded
             docs = self.vector_store.similarity_search(query, k=k)
             return [
                 {

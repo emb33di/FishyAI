@@ -145,8 +145,19 @@ class PDFProcessor:
         except Exception as e:
             return False, f"Error processing PDFs: {str(e)}"
     
-    def get_relevant_documents(self, query: str, k: int = 3) -> List[Dict]:
-        """Retrieve relevant documents for a query."""
+    def get_relevant_documents(self, query: str, k_cases: int = 2, k_slides: int = 2, k_general: int = 2) -> List[Dict]:
+        """
+        Retrieve relevant documents for a query, separating cases, slides, and general readings.
+        
+        Args:
+            query (str): The search query
+            k_cases (int): Number of case documents to retrieve
+            k_slides (int): Number of slide documents to retrieve
+            k_general (int): Number of general reading documents to retrieve
+        
+        Returns:
+            List[Dict]: Combined list of relevant documents
+        """
         if not self.vector_store:
             # Use cached loading
             self.vector_store = load_vectorstore_from_disk(self.embeddings)
@@ -154,15 +165,108 @@ class PDFProcessor:
                 return []
         
         try:
-            # When similarity_search is called, no new embeddings are computed
-            # for documents that are already embedded
-            docs = self.vector_store.similarity_search(query, k=k)
+            # Search all documents
+            total_k = k_cases + k_slides + k_general
+            all_docs = self.vector_store.similarity_search(query, k=total_k)
+            
+            # Categorize documents
+            slides_docs = []
+            cases_docs = []
+            general_docs = []
+            
+            for doc in all_docs:
+                source = doc.metadata.get("source", "Unknown")
+                source_lower = source.lower()
+                
+                # Check document type
+                if " v. " in source or " v " in source:  # Case
+                    cases_docs.append(doc)
+                elif "slides" in source_lower or "Slides" in source:  # Slides
+                    slides_docs.append(doc)
+                else:  # General readings
+                    general_docs.append(doc)
+            
+            # Additional targeted searches if needed
+            # If we don't have enough slides
+            if len(slides_docs) < k_slides:
+                try:
+                    # Try to get more slides specifically
+                    slides_filter = lambda doc: "slides" in doc.metadata.get("source", "").lower() or "Slides" in doc.metadata.get("source", "")
+                    more_slides = self.vector_store.similarity_search(
+                        query, 
+                        k=k_slides - len(slides_docs), 
+                        filter=slides_filter
+                    )
+                    # Add unique slides
+                    for slide in more_slides:
+                        if slide.page_content not in [d.page_content for d in slides_docs]:
+                            slides_docs.append(slide)
+                except:
+                    pass  # If filtering fails, continue with what we have
+            
+            # If we don't have enough cases
+            if len(cases_docs) < k_cases:
+                try:
+                    # Try to get more cases specifically
+                    cases_filter = lambda doc: (" v. " in doc.metadata.get("source", "") or 
+                                              " v " in doc.metadata.get("source", ""))
+                    more_cases = self.vector_store.similarity_search(
+                        query, 
+                        k=k_cases - len(cases_docs), 
+                        filter=cases_filter
+                    )
+                    # Add unique cases
+                    for case in more_cases:
+                        if case.page_content not in [d.page_content for d in cases_docs]:
+                            cases_docs.append(case)
+                except:
+                    pass  # If filtering fails, continue with what we have
+            
+            # If we don't have enough general readings
+            if len(general_docs) < k_general:
+                try:
+                    # Try to get more general readings
+                    general_filter = lambda doc: ("slides" not in doc.metadata.get("source", "").lower() and
+                                               "Slides" not in doc.metadata.get("source", "") and
+                                               " v. " not in doc.metadata.get("source", "") and
+                                               " v " not in doc.metadata.get("source", ""))
+                    more_general = self.vector_store.similarity_search(
+                        query, 
+                        k=k_general - len(general_docs), 
+                        filter=general_filter
+                    )
+                    # Add unique general readings
+                    for gen_doc in more_general:
+                        if gen_doc.page_content not in [d.page_content for d in general_docs]:
+                            general_docs.append(gen_doc)
+                except:
+                    pass  # If filtering fails, continue with what we have
+            
+            # Trim to desired counts
+            slides_docs = slides_docs[:k_slides]
+            cases_docs = cases_docs[:k_cases]
+            general_docs = general_docs[:k_general]
+            
+            # Combine all documents, prioritizing slides, then cases, then general readings
+            combined_docs = slides_docs + cases_docs + general_docs
+            
+            # Determine document type for each document
+            def get_document_type(source):
+                if " v. " in source or " v " in source:
+                    return "case"
+                elif "slides" in source.lower() or "Slides" in source:
+                    return "slide"
+                else:
+                    return "general"
+            
+            # Return formatted documents
             return [
                 {
                     "content": doc.page_content,
-                    "source": doc.metadata.get("source", "Unknown")
+                    "source": doc.metadata.get("source", "Unknown"),
+                    "type": get_document_type(doc.metadata.get("source", "Unknown"))
                 }
-                for doc in docs
+                for doc in combined_docs
             ]
         except Exception as e:
             st.error(f"Error retrieving documents: {str(e)}")

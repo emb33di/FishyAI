@@ -47,20 +47,56 @@ class PropertyLawAgent:
     def ask_question(self, question: str) -> Dict[str, any]:
         """Ask a question about property law and get an answer."""
         try:
-            # Get relevant documents for the question
-            relevant_docs = self.pdf_processor.get_relevant_documents(question)
+            # Get relevant documents for the question with all three types
+            relevant_docs = self.pdf_processor.get_relevant_documents(
+                question, 
+                k_cases=2, 
+                k_slides=2,
+                k_general=2
+            )
             
-            # Create context from relevant documents
-            context = "\n\n".join([f"From {doc['source']}:\n{doc['content']}" for doc in relevant_docs])
+            # Separate documents by type for the context
+            slides_context = ""
+            cases_context = ""
+            general_context = ""
             
-            # Create a system message that includes context
-            system_message = f"""You are a property law exam assistant. Use the following context that includes pdfs of cases and classroom teaching slides to answer the questions about property law doctrine. 
-            If the answer cannot be found in the context, say so. From each pdf extract the legal case names and cite the cases used at the end of a sentence in parenthesis. 
-            Look through all relevant sources covering the question, and synthesize a brief effective answer in the format of legal brief writing.
+            for doc in relevant_docs:
+                doc_type = doc.get("type", "unknown")
+                content = f"From {doc['source']}:\n{doc['content']}"
+                
+                if doc_type == "slide":
+                    slides_context += content + "\n\n"
+                elif doc_type == "case":
+                    cases_context += content + "\n\n"
+                else:  # general
+                    general_context += content + "\n\n"
             
-            Context:
-            {context}
-            """
+            # Create a combined context with clear sections
+            context = ""
+            if slides_context:
+                context += "SLIDE CONTENT:\n" + slides_context
+            if cases_context:
+                context += "CASE CONTENT:\n" + cases_context
+            if general_context:
+                context += "GENERAL READING CONTENT:\n" + general_context
+            
+            # Create a system message that emphasizes checking all types of content
+            system_message = f"""You are a property law exam assistant. Use the following context that includes cases, classroom slides, and general readings to answer questions about property law doctrine.
+
+IMPORTANT INSTRUCTIONS:
+1. For each statement you make, explicitly cite the source from the context provided.
+2. Use the format: (Source: filename.pdf) after each citation.
+3. Look through ALL available content - slides, cases, and general readings.
+4. Slides typically contain key points from the professor, so prioritize information from slides when available.
+5. Cases provide legal precedents and reasoning, so make sure to reference relevant cases.
+6. General readings provide additional context and explanation.
+7. Only cite sources that are actually provided in the context below.
+8. If you go beyond provided context, say so explicitly.
+9. Synthesize a comprehensive answer covering all relevant material from the available sources.
+
+Context:
+{context}
+"""
             
             # Prepare messages for the chat
             messages = [
@@ -88,13 +124,24 @@ class PropertyLawAgent:
                     print(f"Error calling OpenAI API: {str(e)}")
                 raise
             
+            # Extract actual sources mentioned in the answer
+            mentioned_sources = []
+            for doc in relevant_docs:
+                source_name = os.path.basename(doc['source'])
+                if source_name in answer:
+                    mentioned_sources.append(doc['source'])
+            
+            # If no sources mentioned but we have relevant docs, use those
+            if not mentioned_sources and relevant_docs:
+                mentioned_sources = [doc["source"] for doc in relevant_docs]
+            
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})
             self.chat_history.append({"role": "assistant", "content": answer})
             
             return {
                 "answer": answer,
-                "sources": [doc["source"] for doc in relevant_docs],
+                "sources": mentioned_sources,  # Use verified sources
                 "tokens": {
                     "input": response.usage.prompt_tokens,
                     "output": response.usage.completion_tokens,

@@ -40,9 +40,10 @@ class PropertyLawAgent:
         self.pdf_processor = PDFProcessor(pdf_directory)
         self.chat_history = []
         
+    @st.cache_data(show_spinner=False)  # Cache for 1 hour
     def load_pdfs(self) -> tuple[bool, str]:
         """Load and process all PDFs in the specified directory."""
-        return self.pdf_processor.process_pdfs()  # Changed from load_and_process_pdfs()
+        return self.pdf_processor.process_pdfs()
     
     def ask_question(self, question: str) -> Dict[str, any]:
         """Ask a question about property law and get an answer."""

@@ -271,6 +271,7 @@ class PDFProcessor:
             metadatas=metadatas
         )
 
+    @st.cache_data(show_spinner=False)
     def process_pdfs(self) -> Tuple[bool, str]:
         """Load, split, and index all PDFs, using cache when valid to minimize API calls."""
         if not os.path.isdir(self.pdf_dir):
@@ -351,6 +352,7 @@ class PDFProcessor:
             
         return True, f"Indexed {len(pdfs)} PDFs into {len(chunks)} chunks."
 
+    @st.cache_data(show_spinner=False)  # Cache queries for 10 minutes
     def query(self, text: str, k: int = 5) -> List[Dict]:
         """Perform similarity search on the indexed content."""
         if not self.index:

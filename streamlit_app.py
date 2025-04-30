@@ -130,11 +130,17 @@ if 'user_id' not in st.session_state:
     # For simplicity, we generate a UUID and store it in session state
     st.session_state.user_id = str(uuid.uuid4())
 
+@st.cache_resource(show_spinner=False)
+def initialize_agent(pdf_directory):
+    """Cache the agent to prevent reinitialization on every refresh"""
+    agent = PropertyLawAgent(pdf_directory)
+    return agent
+
 # Initialize session state
 if 'agent' not in st.session_state:
     try:
         with st.spinner("Initializing Property Law Assistant..."):
-            st.session_state.agent = PropertyLawAgent("pdfs")
+            st.session_state.agent = initialize_agent("pdfs")
             success, message = st.session_state.agent.load_pdfs()
             st.session_state.initial_load_message = message
     except Exception as e:
@@ -297,24 +303,3 @@ if prompt := st.chat_input("Ask your question about property law..."):
     
     # Save the updated chat history
     save_chat_history(st.session_state.user_id, st.session_state.chat_history)
-
-def load_chat_history(user_id):
-    """Load chat history from file based on user ID"""
-    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            st.warning(f"Error loading chat history: {str(e)}")
-    return []
-
-def save_chat_history(user_id, chat_history):
-    """Save chat history to file based on user ID"""
-    os.makedirs("pdfs", exist_ok=True)
-    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
-    try:
-        with open(history_file, 'w') as f:
-            json.dump(chat_history, f)
-    except Exception as e:
-        st.warning(f"Error saving chat history: {str(e)}")

@@ -61,8 +61,9 @@ class PropertyLawAgent:
             # Create combined context without separating by type
             context = ""
             for doc in relevant_docs:
-                content = f"From {doc['source']}:\n{doc['content']}"
-                context += content + "\n\n"
+                # Make it clearer that this content is directly from the file
+                content = f"SOURCE: {doc['source']}\nCONTENT FROM THIS FILE:\n{doc['content']}\n"
+                context += content + "\n---\n"
             
             # Create a system message that emphasizes checking all types of content
             system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
@@ -70,10 +71,11 @@ class PropertyLawAgent:
             IMPORTANT INSTRUCTIONS:
             1. For each statement you make, explicitly cite the source from the context provided.
             2. Use the format: (Source: filename.pdf) after each citation.
-            3. ALWAYS CHECK THROUGH ANY FILES LABELED "Slides" - they contain the professor's key points and are most relevant for the exam.
-            4. Only cite sources that are actually provided in the context.
-            5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
-            6. Synthesize a comprehensive answer covering all relevant material.
+            3. The content from files including "Slides" is already included in the context above.
+            4. Each source section begins with "SOURCE:" followed by the filename and then "CONTENT FROM THIS FILE:".
+            5. Only cite sources that are actually provided in the context.
+            6. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
+            7. Synthesize a comprehensive answer covering all relevant material.
 
             Context:
             {context}
@@ -94,7 +96,7 @@ class PropertyLawAgent:
                     model=model,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=1000
+                    max_tokens=2000
                 )
                 answer = response.choices[0].message.content
                 

@@ -23,6 +23,16 @@ def _hash_file(path: str) -> str:
     return hasher.hexdigest()
 
 
+@st.cache_resource(show_spinner=False)
+def get_openai_embeddings():
+    """Global cached embeddings to prevent recreating on instance creation"""
+    try:
+        return OpenAIEmbeddings()
+    except Exception as e:
+        print(f"Error initializing OpenAI embeddings: {e}")
+        raise RuntimeError("Failed to initialize OpenAI embeddings")
+
+
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
@@ -40,7 +50,7 @@ class PDFProcessor:
         os.makedirs(self.cache_dir, exist_ok=True)
         
         # Get embeddings model - cached to prevent multiple initializations
-        self.embeddings = self._get_embeddings()
+        self.embeddings = get_openai_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -210,6 +220,57 @@ class PDFProcessor:
             print(f"Error processing PDF {path}: {str(e)}")
             return []
 
+    def _create_or_load_index(self, chunks):
+        """Create or load FAISS index with disk caching for embeddings"""
+        # Path for storing embeddings
+        embeddings_cache_path = os.path.join(self.cache_dir, 'embeddings_cache.pkl')
+        
+        # Try to load cached embeddings
+        cached_embeddings = {}
+        if os.path.exists(embeddings_cache_path):
+            try:
+                with open(embeddings_cache_path, 'rb') as f:
+                    cached_embeddings = pickle.load(f)
+                print(f"Loaded {len(cached_embeddings)} cached embeddings")
+            except Exception as e:
+                print(f"Error loading cached embeddings: {e}")
+        
+        # Identify chunks that need embeddings
+        chunks_to_embed = []
+        for chunk in chunks:
+            chunk_hash = hashlib.md5(chunk.page_content.encode()).hexdigest()
+            if chunk_hash not in cached_embeddings:
+                chunks_to_embed.append((chunk, chunk_hash))
+        
+        # Get embeddings for new chunks only
+        if chunks_to_embed:
+            print(f"Computing embeddings for {len(chunks_to_embed)} new chunks")
+            for chunk, chunk_hash in chunks_to_embed:
+                embedding = self.embeddings.embed_query(chunk.page_content)
+                cached_embeddings[chunk_hash] = embedding
+            
+            # Save updated embeddings cache
+            with open(embeddings_cache_path, 'wb') as f:
+                pickle.dump(cached_embeddings, f)
+        
+        # Create index using all embeddings
+        vectors = []
+        metadatas = []
+        texts = []
+        
+        for chunk in chunks:
+            chunk_hash = hashlib.md5(chunk.page_content.encode()).hexdigest()
+            if chunk_hash in cached_embeddings:
+                vectors.append(cached_embeddings[chunk_hash])
+                metadatas.append(chunk.metadata)
+                texts.append(chunk.page_content)
+        
+        return FAISS.from_embeddings(
+            text_embeddings=list(zip(texts, vectors)),
+            embedding=self.embeddings,
+            metadatas=metadatas
+        )
+
     def process_pdfs(self) -> Tuple[bool, str]:
         """Load, split, and index all PDFs, using cache when valid to minimize API calls."""
         if not os.path.isdir(self.pdf_dir):
@@ -221,6 +282,20 @@ class PDFProcessor:
             
         # Check last processing timestamp to prevent frequent reprocessing
         timestamp_file = os.path.join(self.cache_dir, 'last_processed.txt')
+        
+        # Add a hash of the PDFs to check if anything changed
+        pdfs_hash_file = os.path.join(self.cache_dir, 'pdfs_hash.txt')
+        current_pdfs_hash = hashlib.md5(str(sorted(pdfs)).encode()).hexdigest()
+        
+        # If hash exists and matches, use existing index
+        if os.path.exists(pdfs_hash_file) and os.path.exists(os.path.join(self.cache_dir, 'faiss_index')):
+            with open(pdfs_hash_file, 'r') as f:
+                saved_hash = f.read().strip()
+                if saved_hash == current_pdfs_hash:
+                    print("PDFs collection unchanged, using existing index")
+                    with open(timestamp_file, 'r') as f:
+                        last_processed = f.read().strip()
+                    return True, f"Using cached index from {last_processed} for {len(pdfs)} PDFs."
         
         # If index exists and no PDFs have changed, use cached index
         if os.path.exists(timestamp_file) and not self._needs_reindex(pdfs):
@@ -256,7 +331,7 @@ class PDFProcessor:
         
         # Create the index with OpenAI embeddings
         print("Creating index with OpenAI embeddings...")
-        index = FAISS.from_documents(chunks, self.embeddings)
+        index = self._create_or_load_index(chunks)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)
@@ -264,6 +339,10 @@ class PDFProcessor:
 
         self.index = index
         self._save_metadata()
+        
+        # Save the PDFs hash
+        with open(pdfs_hash_file, 'w') as f:
+            f.write(current_pdfs_hash)
         
         # Save timestamp when completed successfully
         with open(timestamp_file, 'w') as f:

@@ -180,18 +180,6 @@ with st.sidebar:
             st.markdown(f"- {pdf}")
     else:
         st.write("No documents loaded")
-    
-    # Add clear chat button
-    if st.button("Clear Chat History"):
-        st.session_state.chat_history = []
-        save_chat_history(st.session_state.user_id, [])  # Save empty history
-        st.rerun()
-
-    # Add this to your streamlit app
-    if st.button("Clear Cache"):
-        st.cache_resource.clear()
-        st.cache_data.clear()
-        st.rerun()
 
 # Display initial loading message if exists
 if 'initial_load_message' in st.session_state:

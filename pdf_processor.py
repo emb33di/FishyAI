@@ -41,8 +41,8 @@ class PDFProcessor:
         # Use the cached embedding model
         self.embeddings = get_cached_embeddings()
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=500,  # Smaller chunks for slides
+            chunk_overlap=100,  # Less overlap
             length_function=len,
         )
         self.vector_store = load_vectorstore_from_disk(self.embeddings)

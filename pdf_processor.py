@@ -129,7 +129,7 @@ class PDFProcessor:
                     st.info(f"Processing {pdf_file}...")  # Debug log
                     
                     # Check if file contains "slides" in name - use OCR for slides
-                    if "slides" in pdf_file.lower():
+                    if "Slides" in pdf_file.lower():
                         st.info(f"Using OCR-capable loader for {pdf_file}...")
                         loader = UnstructuredPDFLoader(
                             pdf_path, 

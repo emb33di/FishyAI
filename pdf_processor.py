@@ -185,20 +185,33 @@ class PDFProcessor:
     @st.cache_resource(show_spinner=False)
     def _get_embeddings(_self):
         """Get spaCy embeddings model"""
-        return SpacyEmbeddings(model_name=_self.spacy_model)
+        try:
+            return SpacyEmbeddings(model_name=_self.spacy_model)
+        except Exception as e:
+            print(f"Error loading embeddings model: {e}")
+            # Fallback to a simpler model if available
+            try:
+                return SpacyEmbeddings(model_name="en_core_web_sm")
+            except:
+                raise RuntimeError("Could not load any spaCy model with word vectors")
 
     @st.cache_resource
     def _load_index(_self) -> FAISSEquivalent:
-        index_path = os.path.join(_self.cache_dir, 'faiss_index')
-        if os.path.exists(index_path):
-            try:
-                return FAISSEquivalent.load_local(index_path, _self.embeddings)
-            except Exception as e:
-                print(f"Error loading index: {e}")
-                # If embedding dimension changed, we need to reindex
-                import shutil
-                shutil.rmtree(index_path)
-        return None
+        """Load the index with better error handling"""
+        try:
+            index_path = os.path.join(_self.cache_dir, 'faiss_index')
+            if os.path.exists(index_path):
+                try:
+                    return FAISSEquivalent.load_local(index_path, _self.embeddings)
+                except Exception as e:
+                    print(f"Error loading index: {e}")
+                    # If embedding dimension changed, we need to reindex
+                    import shutil
+                    shutil.rmtree(index_path)
+            return None
+        except Exception as e:
+            print(f"Unexpected error in _load_index: {e}")
+            return None
 
     def _load_metadata(self) -> Dict[str, str]:
         if os.path.exists(self.meta_path):

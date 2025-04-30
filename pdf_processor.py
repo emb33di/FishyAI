@@ -59,12 +59,16 @@ class SpacyEmbeddings:
             # Use mean of word vectors for document embedding
             doc_vector = doc.vector
             embeddings.append(doc_vector)
-            
+        
         # Store for future similarity searches
         self.texts = texts
         self.vectors = np.array(embeddings)
         
-        return embeddings.tolist()
+        # Make sure we're returning a list of lists
+        if isinstance(embeddings, np.ndarray):
+            return embeddings.tolist()
+        else:
+            return [emb.tolist() if hasattr(emb, 'tolist') else list(emb) for emb in embeddings]
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""

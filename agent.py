@@ -47,7 +47,7 @@ class PropertyLawAgent:
     def ask_question(self, question: str) -> Dict[str, any]:
         """Ask a question about property law and get an answer."""
         try:
-            # Get relevant documents for the question with all three types
+            # Get relevant documents for the question
             relevant_docs = self.pdf_processor.get_relevant_documents(
                 question, 
                 k_cases=2, 
@@ -55,44 +55,22 @@ class PropertyLawAgent:
                 k_general=2
             )
             
-            # Separate documents by type for the context
-            slides_context = ""
-            cases_context = ""
-            general_context = ""
-            
-            for doc in relevant_docs:
-                doc_type = doc.get("type", "unknown")
-                content = f"From {doc['source']}:\n{doc['content']}"
-                
-                if doc_type == "slide":
-                    slides_context += content + "\n\n"
-                elif doc_type == "case":
-                    cases_context += content + "\n\n"
-                else:  # general
-                    general_context += content + "\n\n"
-            
-            # Create a combined context with clear sections, putting slides first
+            # Create combined context without separating by type
             context = ""
-            if slides_context:
-                context += "IMPORTANT SLIDE CONTENT (CHECK THIS FIRST):\n" + slides_context
-            if cases_context:
-                context += "CASE CONTENT:\n" + cases_context
-            if general_context:
-                context += "GENERAL READING CONTENT:\n" + general_context
+            for doc in relevant_docs:
+                content = f"From {doc['source']}:\n{doc['content']}"
+                context += content + "\n\n"
             
             # Create a system message that emphasizes checking all types of content
-            system_message = f"""You are a property law exam assistant. Use the following context that includes cases, classroom slides, and general readings to answer questions about property law doctrine.
+            system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
 
 IMPORTANT INSTRUCTIONS:
 1. For each statement you make, explicitly cite the source from the context provided.
 2. Use the format: (Source: filename.pdf) after each citation.
-3. ALWAYS CHECK THE SLIDES FIRST - they contain the professor's key points and are most relevant for the exam.
-4. When you use information from slides, explicitly mention: (Source: [slide_filename.pdf])
-5. After checking slides, look at cases and general readings to supplement your answer.
-6. Cases provide legal precedents and reasoning, while general readings provide additional context.
-7. Only cite sources that are actually provided in the context.
-8. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
-9. Synthesize a comprehensive answer covering all relevant material, prioritizing slides.
+3. ALWAYS CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
+4. Only cite sources that are actually provided in the context.
+5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
+6. Synthesize a comprehensive answer covering all relevant material.
 
 Context:
 {context}
@@ -124,35 +102,8 @@ Context:
                     print(f"Error calling OpenAI API: {str(e)}")
                 raise
             
-            # Extract actual sources mentioned in the answer
-            mentioned_sources = []
-            mentioned_slide = False
-
-            # First check if any source is explicitly mentioned in the answer
-            for doc in relevant_docs:
-                source_name = os.path.basename(doc['source'])
-                doc_type = doc.get("type", "unknown")
-                
-                # Check if this source is mentioned in the answer - look for both direct mentions and [filename] format
-                if source_name in answer or f"[{source_name}]" in answer:
-                    mentioned_sources.append(doc['source'])
-                    if doc_type == "slide":
-                        mentioned_slide = True
-
-            # If no slide is mentioned but slides were provided, check if we should add one
-            if not mentioned_slide and slides_context:
-                # Check if the answer contains slide-specific content or mentions slides generally
-                slide_indicators = ["slide", "slides", "presentation", "lecture", "professor", "class"]
-                if any(indicator in answer.lower() for indicator in slide_indicators):
-                    # Add the first slide source if it exists
-                    for doc in relevant_docs:
-                        if doc.get("type", "unknown") == "slide":
-                            mentioned_sources.append(doc['source'])
-                            break
-
-            # If no sources at all are mentioned in the answer, indicate it relied only on outside context
-            if not mentioned_sources:
-                mentioned_sources = ["Relied only on outside context for this response"]
+            # Simply track all sources used in the provided context
+            used_sources = [doc['source'] for doc in relevant_docs]
             
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})
@@ -160,7 +111,7 @@ Context:
             
             return {
                 "answer": answer,
-                "sources": mentioned_sources,  # Use verified sources
+                "sources": used_sources,  # Include all provided sources
                 "tokens": {
                     "input": response.usage.prompt_tokens,
                     "output": response.usage.completion_tokens,

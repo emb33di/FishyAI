@@ -90,26 +90,24 @@ class PDFProcessor:
         try:
             print(f"Attempting to extract text from: {path}")
             
-            # Try native extraction first
-            try:
-                print("Attempting PyPDFLoader extraction...")
-                docs = PyPDFLoader(path).load()
-                if any(d.page_content.strip() for d in docs):
-                    print(f"Successfully extracted {len(docs)} pages using PyPDFLoader")
-                    return docs
-                print("PyPDFLoader extraction returned empty content")
-            except Exception as e:
-                print(f"PyPDFLoader extraction failed: {str(e)}")
-
-            # Try unstructured loader with different modes
+            # Try unstructured loader first for PowerPoint-converted PDFs
             try:
                 print("Attempting UnstructuredPDFLoader extraction...")
-                # Try different modes
+                # Try different modes with specific settings for PowerPoint PDFs
                 for mode in ['elements', 'single', 'paged']:
                     try:
-                        docs = UnstructuredPDFLoader(path, mode=mode).load()
+                        docs = UnstructuredPDFLoader(
+                            path,
+                            mode=mode,
+                            strategy="fast",  # Use fast strategy for better handling of PowerPoint PDFs
+                            include_metadata=True
+                        ).load()
                         if any(d.page_content.strip() for d in docs):
                             print(f"Successfully extracted {len(docs)} pages using UnstructuredPDFLoader with mode {mode}")
+                            # Clean up the extracted text
+                            for doc in docs:
+                                # Remove extra whitespace and normalize line breaks
+                                doc.page_content = ' '.join(doc.page_content.split())
                             return docs
                     except Exception as e:
                         print(f"UnstructuredPDFLoader extraction failed with mode {mode}: {str(e)}")
@@ -117,15 +115,31 @@ class PDFProcessor:
             except Exception as e:
                 print(f"All UnstructuredPDFLoader attempts failed: {str(e)}")
 
-            # OCR fallback with error handling
+            # Try native extraction as fallback
+            try:
+                print("Attempting PyPDFLoader extraction...")
+                docs = PyPDFLoader(path).load()
+                if any(d.page_content.strip() for d in docs):
+                    print(f"Successfully extracted {len(docs)} pages using PyPDFLoader")
+                    # Clean up the extracted text
+                    for doc in docs:
+                        doc.page_content = ' '.join(doc.page_content.split())
+                    return docs
+                print("PyPDFLoader extraction returned empty content")
+            except Exception as e:
+                print(f"PyPDFLoader extraction failed: {str(e)}")
+
+            # OCR as last resort
             try:
                 print("Attempting OCR extraction...")
-                pages = convert_from_path(path, dpi=200)  # Lower DPI for better performance
+                pages = convert_from_path(path, dpi=300)  # Higher DPI for better text recognition
                 ocr_docs = []
                 for i, img in enumerate(pages, start=1):
                     try:
                         text = pytesseract.image_to_string(img)
                         if text.strip():
+                            # Clean up OCR text
+                            text = ' '.join(text.split())
                             ocr_docs.append(Document(
                                 page_content=text,
                                 metadata={'source': os.path.basename(path), 'page': i}

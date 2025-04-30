@@ -146,7 +146,7 @@ class PDFProcessor:
                         f"{sum(1 for d in pdf_docs if d.page_content.strip())} with actual text")
                     
                     # Add special metadata for slides
-                    if "slides" in pdf_file.lower():
+                    if "Slides" in pdf_file.lower():
                         for doc in pdf_docs:
                             doc.metadata["document_type"] = "slide"
                             doc.metadata["priority"] = "high"

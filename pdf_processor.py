@@ -7,78 +7,137 @@ import pytesseract
 from langchain.document_loaders import PyPDFLoader, UnstructuredPDFLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
 import streamlit as st
-from langchain.embeddings import HuggingFaceEmbeddings
-from sentence_transformers import SentenceTransformer
-import requests
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-class LocalHuggingFaceEmbeddings:
+class TfidfEmbeddings:
     """
-    Local embedding model using HuggingFace's sentence-transformers
-    with offline support
+    Local embedding model using scikit-learn's TF-IDF Vectorizer
     """
-    def __init__(self, model_name="all-MiniLM-L6-v2", cache_folder=None):
-        """Initialize with a specific model from sentence-transformers"""
-        self.model_name = model_name
-        self.cache_folder = cache_folder or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
-        os.makedirs(self.cache_folder, exist_ok=True)
-        self.model = self._load_model()
+    def __init__(self, max_features=5000):
+        """Initialize with a specific TF-IDF configuration"""
+        self.vectorizer = TfidfVectorizer(
+            max_features=max_features,
+            stop_words='english',
+            lowercase=True,
+            analyzer='word',
+            ngram_range=(1, 2),  # Use unigrams and bigrams
+            norm='l2'  # Use L2 norm for vectors
+        )
+        self.is_fitted = False
+        self.vectors = None
+        self.texts = None
 
-    @st.cache_resource
-    def _load_model(_self):
-        """Load the model with caching for better performance"""
-        try:
-            # Add "sentence-transformers/" prefix if not already present
-            model_name = _self.model_name
-            if not model_name.startswith("sentence-transformers/") and not "/" in model_name:
-                model_name = f"sentence-transformers/{model_name}"
-                
-            print(f"Loading embedding model: {model_name}")
-            
-            # Try with explicit cache folder
-            return HuggingFaceEmbeddings(
-                model_name=model_name,
-                cache_folder=_self.cache_folder
-            )
-        except Exception as e:
-            print(f"Error loading HuggingFaceEmbeddings: {e}")
-            # Fallback to direct SentenceTransformer
-            try:
-                print(f"Attempting to load model directly with SentenceTransformer...")
-                # Try with or without prefix
-                try:
-                    model = SentenceTransformer(model_name, cache_folder=_self.cache_folder)
-                except Exception:
-                    # Try without prefix if that failed
-                    if model_name.startswith("sentence-transformers/"):
-                        model_name_alt = model_name.replace("sentence-transformers/", "")
-                        model = SentenceTransformer(model_name_alt, cache_folder=_self.cache_folder)
-                
-                # Create a wrapper compatible with LangChain
-                class STWrapper:
-                    def __init__(self, model):
-                        self.model = model
-                        
-                    def embed_documents(self, texts):
-                        return self.model.encode(texts).tolist()
-                        
-                    def embed_query(self, text):
-                        return self.model.encode(text).tolist()
-                
-                return STWrapper(model)
-            except Exception as e2:
-                print(f"Failed to load model directly: {e2}")
-                raise RuntimeError(f"Could not load embedding model: {e2}")
-    
+    def fit_vectorizer(self, texts):
+        """Fit the vectorizer on the provided texts"""
+        if not texts:
+            raise ValueError("Cannot fit TF-IDF vectorizer on empty text list")
+        self.vectorizer.fit(texts)
+        self.is_fitted = True
+        
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Get embeddings for a list of documents"""
-        return self.model.embed_documents(texts)
+        if not self.is_fitted:
+            self.fit_vectorizer(texts)
+            
+        # Store for future similarity searches
+        self.texts = texts
+        self.vectors = self.vectorizer.transform(texts)
+        
+        # Return as dense arrays for compatibility with existing code
+        return self.vectors.toarray().tolist()
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""
-        return self.model.embed_query(text)
+        if not self.is_fitted:
+            raise ValueError("TF-IDF vectorizer needs to be fitted before embedding queries")
+        return self.vectorizer.transform([text]).toarray()[0].tolist()
+    
+    def similarity_search(self, query_embedding, k=5):
+        """Perform similarity search between the query and the stored document vectors"""
+        if not self.is_fitted or self.vectors is None:
+            raise ValueError("No documents have been embedded yet")
+            
+        # Convert query embedding to scipy sparse format for efficiency if needed
+        query_embedding = np.array(query_embedding).reshape(1, -1)
+        
+        # Calculate cosine similarity
+        similarities = cosine_similarity(query_embedding, self.vectors)[0]
+        
+        # Get indices of top k most similar documents
+        top_indices = np.argsort(similarities)[-k:][::-1]
+        
+        return top_indices, similarities[top_indices]
+
+
+class FAISSEquivalent:
+    """
+    A simplified FAISS-like interface using TF-IDF embeddings for compatibility
+    """
+    def __init__(self, embeddings: TfidfEmbeddings, documents: List[Document]):
+        self.embeddings = embeddings
+        self.documents = documents
+        self.doc_texts = [doc.page_content for doc in documents]
+        
+        # Embed all documents
+        self.embeddings.embed_documents(self.doc_texts)
+    
+    @classmethod
+    def from_documents(cls, documents: List[Document], embeddings: TfidfEmbeddings):
+        """Create a FAISSEquivalent instance from documents and embeddings"""
+        return cls(embeddings, documents)
+    
+    def similarity_search(self, query: str, k: int = 5) -> List[Document]:
+        """Find the k most similar documents to the query"""
+        # Embed the query
+        query_embedding = self.embeddings.embed_query(query)
+        
+        # Get the indices and scores of the most similar documents
+        indices, _ = self.embeddings.similarity_search(query_embedding, k=k)
+        
+        # Return the corresponding documents
+        return [self.documents[idx] for idx in indices]
+    
+    def save_local(self, folder_path: str):
+        """Save the index and documents to a local folder"""
+        os.makedirs(folder_path, exist_ok=True)
+        
+        # Save documents
+        with open(os.path.join(folder_path, 'documents.pkl'), 'wb') as f:
+            pickle.dump(self.documents, f)
+        
+        # Save embeddings model and data
+        with open(os.path.join(folder_path, 'embeddings.pkl'), 'wb') as f:
+            pickle.dump({
+                'vectorizer': self.embeddings.vectorizer,
+                'is_fitted': self.embeddings.is_fitted,
+                'texts': self.embeddings.texts,
+                'vectors': self.embeddings.vectors
+            }, f)
+    
+    @classmethod
+    def load_local(cls, folder_path: str, embedding_instance: TfidfEmbeddings = None):
+        """Load the index and documents from a local folder"""
+        # Load documents
+        with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
+            documents = pickle.load(f)
+        
+        # Load embeddings
+        with open(os.path.join(folder_path, 'embeddings.pkl'), 'rb') as f:
+            emb_data = pickle.load(f)
+        
+        # Create or update embeddings instance
+        embeddings = embedding_instance or TfidfEmbeddings()
+        embeddings.vectorizer = emb_data['vectorizer']
+        embeddings.is_fitted = emb_data['is_fitted']
+        embeddings.texts = emb_data['texts']
+        embeddings.vectors = emb_data['vectors']
+        
+        # Create and return the FAISSEquivalent instance
+        return cls(embeddings, documents)
 
 
 def _hash_file(path: str) -> str:
@@ -93,7 +152,7 @@ def _hash_file(path: str) -> str:
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
-    and indexes content in a FAISS vector store with caching.
+    and indexes content using TF-IDF vectors with caching.
     """
     def __init__(
         self,
@@ -101,14 +160,14 @@ class PDFProcessor:
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         cache_subdir: str = ".cache",
-        embedding_model: str = "all-MiniLM-L6-v2"  # Default model
+        max_features: int = 5000  # TF-IDF parameter
     ):
         self.pdf_dir = pdf_dir
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Use local embeddings instead of OpenAI
-        self.embedding_model = embedding_model
+        # Use TF-IDF embeddings instead of HuggingFace
+        self.max_features = max_features
         self.embeddings = self._get_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -122,15 +181,15 @@ class PDFProcessor:
 
     @st.cache_resource(show_spinner=False)
     def _get_embeddings(_self):
-        """Get local embeddings model"""
-        return LocalHuggingFaceEmbeddings(model_name=_self.embedding_model)
+        """Get TF-IDF embeddings model"""
+        return TfidfEmbeddings(max_features=_self.max_features)
 
     @st.cache_resource
-    def _load_index(_self) -> FAISS:
+    def _load_index(_self) -> FAISSEquivalent:
         index_path = os.path.join(_self.cache_dir, 'faiss_index')
         if os.path.exists(index_path):
             try:
-                return FAISS.load_local(index_path, _self.embeddings)
+                return FAISSEquivalent.load_local(index_path, _self.embeddings)
             except Exception as e:
                 print(f"Error loading index: {e}")
                 # If embedding dimension changed, we need to reindex
@@ -161,6 +220,8 @@ class PDFProcessor:
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
+        # Existing implementation - no changes needed
+        # ... (keep all the existing extraction code)
         try:
             print(f"Attempting to extract text from: {path}")
             
@@ -265,9 +326,9 @@ class PDFProcessor:
         # Print info about chunking
         print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
         
-        # Create the FAISS index with local embeddings
-        print("Creating FAISS index with local embeddings...")
-        index = FAISS.from_documents(chunks, self.embeddings)
+        # Create the index with TF-IDF embeddings
+        print("Creating index with TF-IDF embeddings...")
+        index = FAISSEquivalent.from_documents(chunks, self.embeddings)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)
@@ -286,7 +347,3 @@ class PDFProcessor:
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}
             for doc in results
         ]
-
-
-response = requests.get("https://huggingface.co")
-print(f"Status code: {response.status_code}")

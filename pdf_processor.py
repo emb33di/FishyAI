@@ -9,64 +9,71 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
 import numpy as np
+import spacy
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-class SentenceTransformerEmbeddings:
+class SpacyEmbeddings:
     """
-    Local embedding model using Hugging Face's Sentence Transformers
+    Local embedding model using spaCy's word vectors
     """
-    def __init__(self, model_name="all-MiniLM-L6-v2"):
-        """Initialize with a specific Sentence Transformer model"""
+    def __init__(self, model_name="en_core_web_md"):
+        """Initialize with a specific spaCy model"""
         try:
-            from sentence_transformers import SentenceTransformer
-            
-            # Try to load from local model cache first
-            local_model_path = os.path.join(os.path.dirname(__file__), "model_cache", model_name)
-            if os.path.exists(local_model_path):
-                print(f"Loading model from local cache: {local_model_path}")
-                self.model = SentenceTransformer(local_model_path)
-            else:
-                # Fall back to downloading from HuggingFace
-                self.model = SentenceTransformer(model_name)
-                
-        except ImportError:
-            # Install sentence_transformers if not available
+            import spacy
+            self.nlp = spacy.load(model_name)
+        except OSError:
+            # Download the model using pip instead of spacy download command
             import subprocess
             import sys
-            print(f"Installing sentence_transformers package...")
+            print(f"Downloading spaCy model {model_name} via pip...")
             try:
-                subprocess.run([sys.executable, '-m', 'pip', 'install', 'sentence-transformers'], 
-                              check=True, capture_output=True)
-                from sentence_transformers import SentenceTransformer
-                self.model = SentenceTransformer(model_name)
-            except Exception as e:
-                print(f"Failed to install sentence_transformers: {str(e)}")
-                raise ValueError("Could not initialize Sentence Transformers. Please install manually.")
-                
+                subprocess.run([sys.executable, '-m', 'pip', 'install', f"{model_name}"], 
+                               check=True, capture_output=True)
+                import spacy
+                self.nlp = spacy.load(model_name)
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to download model: {e.stderr.decode()}")
+                raise ValueError(f"Could not download spaCy model {model_name}. Please install manually.")
+            
+        # Check if the model has word vectors
+        if not self.nlp.has_pipe("tok2vec"):
+            raise ValueError(f"The spaCy model '{model_name}' does not have word vectors")
+            
         self.vectors = None
         self.texts = None
         
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Get embeddings for a list of documents"""
-        # Process texts in batches for better memory management
-        batch_size = 8
-        embeddings = []
+        # Process texts in batches for better performance
+        docs = list(self.nlp.pipe(texts, batch_size=20, disable=["ner", "parser"]))
         
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i+batch_size]
-            batch_embeddings = self.model.encode(batch)
-            embeddings.extend(batch_embeddings)
+        # Calculate document embeddings (mean of word vectors)
+        embeddings = []
+        for doc in docs:
+            # Skip empty docs
+            if len(doc) == 0:
+                embeddings.append(np.zeros(self.nlp.vocab.vectors.shape[1]))
+                continue
+                
+            # Use mean of word vectors for document embedding
+            doc_vector = doc.vector
+            embeddings.append(doc_vector)
         
         # Store for future similarity searches
         self.texts = texts
         self.vectors = np.array(embeddings)
         
-        return self.vectors.tolist()
+        # Make sure we're returning a list of lists
+        if isinstance(embeddings, np.ndarray):
+            return embeddings.tolist()
+        else:
+            return [emb.tolist() if hasattr(emb, 'tolist') else list(emb) for emb in embeddings]
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""
-        return self.model.encode(text).tolist()
+        doc = self.nlp(text, disable=["ner", "parser"])
+        return doc.vector.tolist()
     
     def similarity_search(self, query_embedding, k=5):
         """Perform similarity search between the query and the stored document vectors"""
@@ -87,9 +94,9 @@ class SentenceTransformerEmbeddings:
 
 class FAISSEquivalent:
     """
-    A simplified FAISS-like interface using sentence transformers embeddings for compatibility
+    A simplified FAISS-like interface using spaCy embeddings for compatibility
     """
-    def __init__(self, embeddings: SentenceTransformerEmbeddings, documents: List[Document]):
+    def __init__(self, embeddings: SpacyEmbeddings, documents: List[Document]):
         self.embeddings = embeddings
         self.documents = documents
         self.doc_texts = [doc.page_content for doc in documents]
@@ -98,7 +105,7 @@ class FAISSEquivalent:
         self.embeddings.embed_documents(self.doc_texts)
     
     @classmethod
-    def from_documents(cls, documents: List[Document], embeddings: SentenceTransformerEmbeddings):
+    def from_documents(cls, documents: List[Document], embeddings: SpacyEmbeddings):
         """Create a FAISSEquivalent instance from documents and embeddings"""
         return cls(embeddings, documents)
     
@@ -129,7 +136,7 @@ class FAISSEquivalent:
             }, f)
     
     @classmethod
-    def load_local(cls, folder_path: str, embedding_instance: SentenceTransformerEmbeddings = None):
+    def load_local(cls, folder_path: str, embedding_instance: SpacyEmbeddings = None):
         """Load the index and documents from a local folder"""
         # Load documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
@@ -140,7 +147,7 @@ class FAISSEquivalent:
             emb_data = pickle.load(f)
         
         # Create or update embeddings instance
-        embeddings = embedding_instance or SentenceTransformerEmbeddings()
+        embeddings = embedding_instance or SpacyEmbeddings()
         embeddings.texts = emb_data['texts']
         embeddings.vectors = emb_data['vectors']
         
@@ -160,7 +167,7 @@ def _hash_file(path: str) -> str:
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
-    and indexes content using Sentence Transformers embeddings with caching.
+    and indexes content using spaCy embeddings with caching.
     """
     def __init__(
         self,
@@ -168,14 +175,14 @@ class PDFProcessor:
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         cache_subdir: str = ".cache",
-        model_name: str = "all-MiniLM-L6-v2"  # Default to lightweight but effective model
+        spacy_model: str = "en_core_web_md"  # Medium-sized English model with word vectors
     ):
         self.pdf_dir = pdf_dir
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Use Sentence Transformers embeddings instead of SpaCy
-        self.model_name = model_name
+        # Use spaCy embeddings instead of TF-IDF
+        self.spacy_model = spacy_model
         self.embeddings = self._get_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -189,8 +196,8 @@ class PDFProcessor:
 
     @st.cache_resource(show_spinner=False)
     def _get_embeddings(_self):
-        """Get Sentence Transformers embeddings model"""
-        return SentenceTransformerEmbeddings(model_name=_self.model_name)
+        """Get spaCy embeddings model"""
+        return SpacyEmbeddings(model_name=_self.spacy_model)
 
     @st.cache_resource
     def _load_index(_self) -> FAISSEquivalent:
@@ -333,8 +340,8 @@ class PDFProcessor:
         # Print info about chunking
         print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
         
-        # Create the index with Sentence Transformers embeddings
-        print(f"Creating index with {self.model_name} embeddings...")
+        # Create the index with spaCy embeddings
+        print("Creating index with spaCy embeddings...")
         index = FAISSEquivalent.from_documents(chunks, self.embeddings)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')
@@ -354,8 +361,3 @@ class PDFProcessor:
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}
             for doc in results
         ]
-
-# Download script to run once on your development machine
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer("all-MiniLM-L6-v2")
-model.save("./model_cache/all-MiniLM-L6-v2")

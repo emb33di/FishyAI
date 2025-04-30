@@ -8,139 +8,9 @@ from langchain.document_loaders import PyPDFLoader, UnstructuredPDFLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import FAISS
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-
-class TFIDFEmbeddings:
-    """
-    Local embedding model using TF-IDF vectors
-    """
-    def __init__(self):
-        """Initialize the TF-IDF vectorizer"""
-        self.vectorizer = TfidfVectorizer(
-            lowercase=True,
-            stop_words='english',
-            ngram_range=(1, 2),
-            max_features=10000
-        )
-        self.vectors = None
-        self.texts = None
-        self.fitted = False
-        
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for a list of documents"""
-        if not texts:
-            return []
-            
-        # Fit and transform the texts
-        self.texts = texts
-        self.vectors = self.vectorizer.fit_transform(texts)
-        self.fitted = True
-        
-        # Return as dense array for consistency
-        return self.vectors.toarray().tolist()
-    
-    def embed_query(self, text: str) -> List[float]:
-        """Get embedding for a query text"""
-        if not self.fitted:
-            raise ValueError("Vectorizer has not been fitted yet")
-            
-        # Transform query using the fitted vectorizer
-        query_vector = self.vectorizer.transform([text])
-        return query_vector.toarray()[0].tolist()
-    
-    def similarity_search(self, query_embedding, k=5):
-        """Perform similarity search between the query and the stored document vectors"""
-        if self.vectors is None:
-            raise ValueError("No documents have been embedded yet")
-            
-        # Convert query embedding to numpy array and reshape
-        query_embedding = np.array(query_embedding).reshape(1, -1)
-        
-        # Calculate cosine similarity
-        similarities = cosine_similarity(query_embedding, self.vectors)[0]
-        
-        # Get indices of top k most similar documents
-        top_indices = np.argsort(similarities)[-k:][::-1]
-        
-        return top_indices, similarities[top_indices]
-
-
-class FAISSEquivalent:
-    """
-    A simplified FAISS-like interface using TF-IDF embeddings for compatibility
-    """
-    def __init__(self, embeddings: TFIDFEmbeddings, documents: List[Document]):
-        self.embeddings = embeddings
-        self.documents = documents
-        self.doc_texts = [doc.page_content for doc in documents]
-        
-        # Embed all documents
-        self.embeddings.embed_documents(self.doc_texts)
-    
-    @classmethod
-    def from_documents(cls, documents: List[Document], embeddings: TFIDFEmbeddings):
-        """Create a FAISSEquivalent instance from documents and embeddings"""
-        return cls(embeddings, documents)
-    
-    def similarity_search(self, query: str, k: int = 5) -> List[Document]:
-        """Find the k most similar documents to the query"""
-        # Embed the query
-        query_embedding = self.embeddings.embed_query(query)
-        
-        # Get the indices and scores of the most similar documents
-        indices, _ = self.embeddings.similarity_search(query_embedding, k=k)
-        
-        # Return the corresponding documents
-        return [self.documents[idx] for idx in indices]
-    
-    def save_local(self, folder_path: str):
-        """Save the index and documents to a local folder"""
-        os.makedirs(folder_path, exist_ok=True)
-        
-        # Save documents
-        with open(os.path.join(folder_path, 'documents.pkl'), 'wb') as f:
-            pickle.dump(self.documents, f)
-        
-        # Save vectorizer and other TF-IDF data
-        with open(os.path.join(folder_path, 'embeddings.pkl'), 'wb') as f:
-            pickle.dump({
-                'vectorizer': self.embeddings.vectorizer,
-                'texts': self.embeddings.texts,
-                'fitted': self.embeddings.fitted
-            }, f)
-            
-        # Save vectors separately as they might be large and sparse
-        if self.embeddings.vectors is not None:
-            with open(os.path.join(folder_path, 'vectors.pkl'), 'wb') as f:
-                pickle.dump(self.embeddings.vectors, f)
-    
-    @classmethod
-    def load_local(cls, folder_path: str, embedding_instance: TFIDFEmbeddings = None):
-        """Load the index and documents from a local folder"""
-        # Load documents
-        with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
-            documents = pickle.load(f)
-        
-        # Load embeddings data
-        with open(os.path.join(folder_path, 'embeddings.pkl'), 'rb') as f:
-            emb_data = pickle.load(f)
-        
-        # Create or update embeddings instance
-        embeddings = embedding_instance or TFIDFEmbeddings()
-        embeddings.vectorizer = emb_data['vectorizer']
-        embeddings.texts = emb_data['texts']
-        embeddings.fitted = emb_data['fitted']
-        
-        # Load vectors
-        if os.path.exists(os.path.join(folder_path, 'vectors.pkl')):
-            with open(os.path.join(folder_path, 'vectors.pkl'), 'rb') as f:
-                embeddings.vectors = pickle.load(f)
-        
-        # Create and return the FAISSEquivalent instance
-        return cls(embeddings, documents)
 
 
 def _hash_file(path: str) -> str:
@@ -155,7 +25,7 @@ def _hash_file(path: str) -> str:
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
-    and indexes content using TF-IDF embeddings with caching.
+    and indexes content using OpenAI embeddings with cost-saving caching.
     """
     def __init__(
         self,
@@ -168,7 +38,7 @@ class PDFProcessor:
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Use TF-IDF embeddings
+        # Get embeddings model - cached to prevent multiple initializations
         self.embeddings = self._get_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -179,27 +49,28 @@ class PDFProcessor:
         self.index = self._load_index()
         self.meta_path = os.path.join(self.cache_dir, 'metadata.pkl')
         self.metadata = self._load_metadata()
+        self.chunks_cache_path = os.path.join(self.cache_dir, 'chunks.pkl')
 
     @st.cache_resource(show_spinner=False, ttl=3600)
     def _get_embeddings(_self):
-        """Get TF-IDF embeddings model"""
+        """Get OpenAI embeddings model"""
         try:
-            return TFIDFEmbeddings()
+            return OpenAIEmbeddings()
         except Exception as e:
-            print(f"Error initializing TF-IDF embeddings: {e}")
-            raise RuntimeError("Failed to initialize TF-IDF embeddings")
+            print(f"Error initializing OpenAI embeddings: {e}")
+            raise RuntimeError("Failed to initialize OpenAI embeddings")
 
     @st.cache_resource(ttl=3600)
-    def _load_index(_self) -> FAISSEquivalent:
-        """Load the index with better error handling"""
+    def _load_index(_self):
+        """Load the index with error handling"""
         try:
             index_path = os.path.join(_self.cache_dir, 'faiss_index')
             if os.path.exists(index_path):
                 try:
-                    return FAISSEquivalent.load_local(index_path, _self.embeddings)
+                    return FAISS.load_local(index_path, _self.embeddings)
                 except Exception as e:
                     print(f"Error loading index: {e}")
-                    # If embedding dimension changed, we need to reindex
+                    # If embedding dimension changed or other error, we need to reindex
                     import shutil
                     shutil.rmtree(index_path)
             return None
@@ -219,6 +90,21 @@ class PDFProcessor:
     def _save_metadata(self):
         with open(self.meta_path, 'wb') as f:
             pickle.dump(self.metadata, f)
+            
+    def _load_cached_chunks(self) -> List[Document]:
+        """Load cached chunks to avoid regenerating embeddings"""
+        if os.path.exists(self.chunks_cache_path):
+            try:
+                with open(self.chunks_cache_path, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                print(f"Error loading cached chunks: {e}")
+        return None
+        
+    def _save_cached_chunks(self, chunks: List[Document]):
+        """Save chunks to cache to avoid regenerating embeddings"""
+        with open(self.chunks_cache_path, 'wb') as f:
+            pickle.dump(chunks, f)
 
     def _needs_reindex(self, files: List[str]) -> bool:
         if not self.index:
@@ -230,7 +116,7 @@ class PDFProcessor:
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
-        # Existing implementation - no changes needed
+        """Extract text from PDFs with multiple fallback methods"""
         try:
             print(f"Attempting to extract text from: {path}")
             
@@ -307,7 +193,7 @@ class PDFProcessor:
             return []
 
     def process_pdfs(self) -> Tuple[bool, str]:
-        """Load, split, and index all PDFs, using cache when valid."""
+        """Load, split, and index all PDFs, using cache when valid to minimize API calls."""
         if not os.path.isdir(self.pdf_dir):
             return False, f"Directory not found: {self.pdf_dir}"
 
@@ -315,29 +201,39 @@ class PDFProcessor:
         if not pdfs:
             return False, "No PDFs found."
 
+        # If index exists and no PDFs have changed, use cached index
         if not self._needs_reindex(pdfs):
             return True, f"Using cached index for {len(pdfs)} PDFs."
 
-        all_docs: List[Document] = []
-        for pdf in pdfs:
-            path = os.path.join(self.pdf_dir, pdf)
-            docs = self._extract_text(path)
-            for d in docs:
-                d.metadata.setdefault('source', pdf)
-            all_docs.extend(docs)
-            self.metadata[pdf] = _hash_file(path)
+        # Check if we have cached chunks that we can reuse
+        cached_chunks = self._load_cached_chunks()
+        if cached_chunks and all(pdf in self.metadata for pdf in pdfs):
+            # Only use cached chunks if we have all PDFs accounted for
+            chunks = cached_chunks
+            print(f"Using {len(chunks)} cached chunks to avoid regenerating embeddings")
+        else:
+            # Process PDFs from scratch
+            all_docs: List[Document] = []
+            for pdf in pdfs:
+                path = os.path.join(self.pdf_dir, pdf)
+                docs = self._extract_text(path)
+                for d in docs:
+                    d.metadata.setdefault('source', pdf)
+                all_docs.extend(docs)
+                self.metadata[pdf] = _hash_file(path)
 
-        if not all_docs:
-            return False, "No text extracted from PDFs."
+            if not all_docs:
+                return False, "No text extracted from PDFs."
 
-        chunks = self.text_splitter.split_documents(all_docs)
+            chunks = self.text_splitter.split_documents(all_docs)
+            print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
+            
+            # Cache the chunks to avoid regenerating if embedding fails
+            self._save_cached_chunks(chunks)
         
-        # Print info about chunking
-        print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
-        
-        # Create the index with TF-IDF embeddings
-        print("Creating index with TF-IDF embeddings...")
-        index = FAISSEquivalent.from_documents(chunks, self.embeddings)
+        # Create the index with OpenAI embeddings
+        print("Creating index with OpenAI embeddings...")
+        index = FAISS.from_documents(chunks, self.embeddings)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)

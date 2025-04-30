@@ -56,7 +56,9 @@ class SpacyEmbeddings:
         self.texts = texts
         self.vectors = np.array(embeddings)
         
-        return embeddings.tolist()
+        # Return embeddings as list of lists
+        # Return directly without calling tolist() - embeddings is already a list of numpy arrays
+        return embeddings  # Remove the .tolist() call
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""

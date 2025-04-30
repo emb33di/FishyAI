@@ -9,72 +9,54 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
 import numpy as np
-import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-class SpacyEmbeddings:
+class TFIDFEmbeddings:
     """
-    Local embedding model using spaCy's word vectors
+    Local embedding model using TF-IDF vectors
     """
-    def __init__(self, model_name="en_core_web_md"):
-        """Initialize with a specific spaCy model"""
-        try:
-            self.nlp = spacy.load(model_name)
-        except OSError:
-            # Download the model if it's not available
-            import subprocess
-            print(f"Downloading spaCy model {model_name}...")
-            subprocess.run(['python', '-m', 'spacy', 'download', model_name], check=True)
-            self.nlp = spacy.load(model_name)
-            
-        # Check if the model has word vectors
-        if not self.nlp.has_pipe("tok2vec"):
-            raise ValueError(f"The spaCy model '{model_name}' does not have word vectors")
-            
+    def __init__(self):
+        """Initialize the TF-IDF vectorizer"""
+        self.vectorizer = TfidfVectorizer(
+            lowercase=True,
+            stop_words='english',
+            ngram_range=(1, 2),
+            max_features=10000
+        )
         self.vectors = None
         self.texts = None
+        self.fitted = False
         
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for a list of documents with improved handling"""
-        # Process texts in batches for better performance
-        docs = list(self.nlp.pipe(texts, batch_size=20, disable=["ner", "parser"]))
-        
-        # Calculate document embeddings (mean of word vectors)
-        embeddings = []
-        for doc in docs:
-            # Skip empty docs
-            if len(doc) == 0:
-                embeddings.append(np.zeros(self.nlp.vocab.vectors.shape[1]))
-                continue
-                
-            # Use mean of word vectors for document embedding
-            doc_vector = doc.vector
+        """Get embeddings for a list of documents"""
+        if not texts:
+            return []
             
-            # Convert to list if it's a numpy array
-            if isinstance(doc_vector, np.ndarray):
-                embeddings.append(doc_vector)
-            else:
-                embeddings.append(doc_vector)
-        
-        # Store for future similarity searches
+        # Fit and transform the texts
         self.texts = texts
-        # Make sure vectors is a numpy array
-        self.vectors = np.array(embeddings)
+        self.vectors = self.vectorizer.fit_transform(texts)
+        self.fitted = True
         
-        return embeddings
+        # Return as dense array for consistency
+        return self.vectors.toarray().tolist()
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""
-        doc = self.nlp(text, disable=["ner", "parser"])
-        return doc.vector.tolist()
+        if not self.fitted:
+            raise ValueError("Vectorizer has not been fitted yet")
+            
+        # Transform query using the fitted vectorizer
+        query_vector = self.vectorizer.transform([text])
+        return query_vector.toarray()[0].tolist()
     
     def similarity_search(self, query_embedding, k=5):
         """Perform similarity search between the query and the stored document vectors"""
         if self.vectors is None:
             raise ValueError("No documents have been embedded yet")
             
-        # Convert query embedding to numpy array
+        # Convert query embedding to numpy array and reshape
         query_embedding = np.array(query_embedding).reshape(1, -1)
         
         # Calculate cosine similarity
@@ -88,9 +70,9 @@ class SpacyEmbeddings:
 
 class FAISSEquivalent:
     """
-    A simplified FAISS-like interface using spaCy embeddings for compatibility
+    A simplified FAISS-like interface using TF-IDF embeddings for compatibility
     """
-    def __init__(self, embeddings: SpacyEmbeddings, documents: List[Document]):
+    def __init__(self, embeddings: TFIDFEmbeddings, documents: List[Document]):
         self.embeddings = embeddings
         self.documents = documents
         self.doc_texts = [doc.page_content for doc in documents]
@@ -99,7 +81,7 @@ class FAISSEquivalent:
         self.embeddings.embed_documents(self.doc_texts)
     
     @classmethod
-    def from_documents(cls, documents: List[Document], embeddings: SpacyEmbeddings):
+    def from_documents(cls, documents: List[Document], embeddings: TFIDFEmbeddings):
         """Create a FAISSEquivalent instance from documents and embeddings"""
         return cls(embeddings, documents)
     
@@ -115,52 +97,47 @@ class FAISSEquivalent:
         return [self.documents[idx] for idx in indices]
     
     def save_local(self, folder_path: str):
-        """Save the index and documents to a local folder with improved serialization"""
+        """Save the index and documents to a local folder"""
         os.makedirs(folder_path, exist_ok=True)
         
         # Save documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'wb') as f:
             pickle.dump(self.documents, f)
         
-        # Convert numpy arrays to lists for more reliable serialization
-        texts = self.embeddings.texts
-        
-        # Handle vectors - ensure we're saving in a format that can be reliably loaded
-        vectors = None
-        if self.embeddings.vectors is not None:
-            if isinstance(self.embeddings.vectors, np.ndarray):
-                vectors = self.embeddings.vectors.tolist()
-            else:
-                # If it's already something else, save as is
-                vectors = self.embeddings.vectors
-        
-        # Save embeddings data with safer serialization
+        # Save vectorizer and other TF-IDF data
         with open(os.path.join(folder_path, 'embeddings.pkl'), 'wb') as f:
             pickle.dump({
-                'texts': texts,
-                'vectors': vectors
+                'vectorizer': self.embeddings.vectorizer,
+                'texts': self.embeddings.texts,
+                'fitted': self.embeddings.fitted
             }, f)
+            
+        # Save vectors separately as they might be large and sparse
+        if self.embeddings.vectors is not None:
+            with open(os.path.join(folder_path, 'vectors.pkl'), 'wb') as f:
+                pickle.dump(self.embeddings.vectors, f)
     
     @classmethod
-    def load_local(cls, folder_path: str, embedding_instance: SpacyEmbeddings = None):
-        """Load the index and documents from a local folder with improved deserialization"""
+    def load_local(cls, folder_path: str, embedding_instance: TFIDFEmbeddings = None):
+        """Load the index and documents from a local folder"""
         # Load documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
             documents = pickle.load(f)
         
-        # Load embeddings
+        # Load embeddings data
         with open(os.path.join(folder_path, 'embeddings.pkl'), 'rb') as f:
             emb_data = pickle.load(f)
         
         # Create or update embeddings instance
-        embeddings = embedding_instance or SpacyEmbeddings()
+        embeddings = embedding_instance or TFIDFEmbeddings()
+        embeddings.vectorizer = emb_data['vectorizer']
         embeddings.texts = emb_data['texts']
+        embeddings.fitted = emb_data['fitted']
         
-        # Convert vectors back to numpy array if they were saved as lists
-        if emb_data['vectors'] is not None:
-            embeddings.vectors = np.array(emb_data['vectors'])
-        else:
-            embeddings.vectors = None
+        # Load vectors
+        if os.path.exists(os.path.join(folder_path, 'vectors.pkl')):
+            with open(os.path.join(folder_path, 'vectors.pkl'), 'rb') as f:
+                embeddings.vectors = pickle.load(f)
         
         # Create and return the FAISSEquivalent instance
         return cls(embeddings, documents)
@@ -178,22 +155,20 @@ def _hash_file(path: str) -> str:
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
-    and indexes content using spaCy embeddings with caching.
+    and indexes content using TF-IDF embeddings with caching.
     """
     def __init__(
         self,
         pdf_dir: str,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
-        cache_subdir: str = ".cache",
-        spacy_model: str = "en_core_web_md"  # Medium-sized English model with word vectors
+        cache_subdir: str = ".cache"
     ):
         self.pdf_dir = pdf_dir
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Use spaCy embeddings instead of TF-IDF
-        self.spacy_model = spacy_model
+        # Use TF-IDF embeddings
         self.embeddings = self._get_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -205,22 +180,16 @@ class PDFProcessor:
         self.meta_path = os.path.join(self.cache_dir, 'metadata.pkl')
         self.metadata = self._load_metadata()
 
-    @st.cache_resource(show_spinner=False, ttl=3600)  # Add time-to-live to avoid stale caches
+    @st.cache_resource(show_spinner=False, ttl=3600)
     def _get_embeddings(_self):
-        """Get spaCy embeddings model"""
+        """Get TF-IDF embeddings model"""
         try:
-            import spacy
-            return SpacyEmbeddings(model_name=_self.spacy_model)
+            return TFIDFEmbeddings()
         except Exception as e:
-            print(f"Error loading embeddings model: {e}")
-            # Fallback to a simpler model if available
-            try:
-                return SpacyEmbeddings(model_name="en_core_web_sm")
-            except Exception as err:
-                print(f"Failed to load fallback model: {err}")
-                raise RuntimeError("Could not load any spaCy model with word vectors")
+            print(f"Error initializing TF-IDF embeddings: {e}")
+            raise RuntimeError("Failed to initialize TF-IDF embeddings")
 
-    @st.cache_resource(ttl=3600)  # Add time-to-live to avoid stale caches
+    @st.cache_resource(ttl=3600)
     def _load_index(_self) -> FAISSEquivalent:
         """Load the index with better error handling"""
         try:
@@ -366,8 +335,8 @@ class PDFProcessor:
         # Print info about chunking
         print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
         
-        # Create the index with spaCy embeddings
-        print("Creating index with spaCy embeddings...")
+        # Create the index with TF-IDF embeddings
+        print("Creating index with TF-IDF embeddings...")
         index = FAISSEquivalent.from_documents(chunks, self.embeddings)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')

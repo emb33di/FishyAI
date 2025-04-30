@@ -133,8 +133,8 @@ Context:
                 source_name = os.path.basename(doc['source'])
                 doc_type = doc.get("type", "unknown")
                 
-                # Check if this source is mentioned in the answer
-                if source_name in answer:
+                # Check if this source is mentioned in the answer - look for both direct mentions and [filename] format
+                if source_name in answer or f"[{source_name}]" in answer:
                     mentioned_sources.append(doc['source'])
                     if doc_type == "slide":
                         mentioned_slide = True

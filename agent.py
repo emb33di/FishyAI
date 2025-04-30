@@ -33,6 +33,12 @@ class DocumentAgent:
             summary += f"{doc['content'][:500]}...\n\n"
         
         return summary
+        
+    def get_loaded_pdfs(self) -> List[str]:
+        """Return list of currently loaded PDFs."""
+        if not os.path.exists(self.pdf_directory):
+            return []
+        return [f for f in os.listdir(self.pdf_directory) if f.endswith('.pdf')]
 
 def main():
     st.title("Document Processing Agent")

@@ -36,7 +36,7 @@ class SpacyEmbeddings:
         self.texts = None
         
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for a list of documents"""
+        """Get embeddings for a list of documents with improved handling"""
         # Process texts in batches for better performance
         docs = list(self.nlp.pipe(texts, batch_size=20, disable=["ner", "parser"]))
         
@@ -50,15 +50,19 @@ class SpacyEmbeddings:
                 
             # Use mean of word vectors for document embedding
             doc_vector = doc.vector
-            embeddings.append(doc_vector)
             
+            # Convert to list if it's a numpy array
+            if isinstance(doc_vector, np.ndarray):
+                embeddings.append(doc_vector)
+            else:
+                embeddings.append(doc_vector)
+        
         # Store for future similarity searches
         self.texts = texts
+        # Make sure vectors is a numpy array
         self.vectors = np.array(embeddings)
         
-        # Return embeddings as list of lists
-        # Return directly without calling tolist() - embeddings is already a list of numpy arrays
-        return embeddings  # Remove the .tolist() call
+        return embeddings
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""
@@ -111,23 +115,35 @@ class FAISSEquivalent:
         return [self.documents[idx] for idx in indices]
     
     def save_local(self, folder_path: str):
-        """Save the index and documents to a local folder"""
+        """Save the index and documents to a local folder with improved serialization"""
         os.makedirs(folder_path, exist_ok=True)
         
         # Save documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'wb') as f:
             pickle.dump(self.documents, f)
         
-        # Save embeddings data
+        # Convert numpy arrays to lists for more reliable serialization
+        texts = self.embeddings.texts
+        
+        # Handle vectors - ensure we're saving in a format that can be reliably loaded
+        vectors = None
+        if self.embeddings.vectors is not None:
+            if isinstance(self.embeddings.vectors, np.ndarray):
+                vectors = self.embeddings.vectors.tolist()
+            else:
+                # If it's already something else, save as is
+                vectors = self.embeddings.vectors
+        
+        # Save embeddings data with safer serialization
         with open(os.path.join(folder_path, 'embeddings.pkl'), 'wb') as f:
             pickle.dump({
-                'texts': self.embeddings.texts,
-                'vectors': self.embeddings.vectors
+                'texts': texts,
+                'vectors': vectors
             }, f)
     
     @classmethod
     def load_local(cls, folder_path: str, embedding_instance: SpacyEmbeddings = None):
-        """Load the index and documents from a local folder"""
+        """Load the index and documents from a local folder with improved deserialization"""
         # Load documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
             documents = pickle.load(f)
@@ -139,7 +155,12 @@ class FAISSEquivalent:
         # Create or update embeddings instance
         embeddings = embedding_instance or SpacyEmbeddings()
         embeddings.texts = emb_data['texts']
-        embeddings.vectors = emb_data['vectors']
+        
+        # Convert vectors back to numpy array if they were saved as lists
+        if emb_data['vectors'] is not None:
+            embeddings.vectors = np.array(emb_data['vectors'])
+        else:
+            embeddings.vectors = None
         
         # Create and return the FAISSEquivalent instance
         return cls(embeddings, documents)
@@ -184,20 +205,22 @@ class PDFProcessor:
         self.meta_path = os.path.join(self.cache_dir, 'metadata.pkl')
         self.metadata = self._load_metadata()
 
-    @st.cache_resource(show_spinner=False)
+    @st.cache_resource(show_spinner=False, ttl=3600)  # Add time-to-live to avoid stale caches
     def _get_embeddings(_self):
         """Get spaCy embeddings model"""
         try:
+            import spacy
             return SpacyEmbeddings(model_name=_self.spacy_model)
         except Exception as e:
             print(f"Error loading embeddings model: {e}")
             # Fallback to a simpler model if available
             try:
                 return SpacyEmbeddings(model_name="en_core_web_sm")
-            except:
+            except Exception as err:
+                print(f"Failed to load fallback model: {err}")
                 raise RuntimeError("Could not load any spaCy model with word vectors")
 
-    @st.cache_resource
+    @st.cache_resource(ttl=3600)  # Add time-to-live to avoid stale caches
     def _load_index(_self) -> FAISSEquivalent:
         """Load the index with better error handling"""
         try:

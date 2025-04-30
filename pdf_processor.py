@@ -55,7 +55,7 @@ class PDFProcessor:
         return OpenAIEmbeddings()
 
     @st.cache_resource
-    def _load_index(_self=None) -> FAISS:
+    def _load_index(self) -> FAISS:
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         if os.path.exists(index_path):
             try:

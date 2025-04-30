@@ -1,5 +1,5 @@
 import streamlit as st
-from agent import DocumentAgent
+from agent import PropertyLawAgent
 import time
 import os
 from dotenv import load_dotenv

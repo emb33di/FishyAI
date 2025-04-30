@@ -93,7 +93,7 @@ class PropertyLawAgent:
                     model=model,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=2000
+                    max_tokens=1000
                 )
                 answer = response.choices[0].message.content
                 

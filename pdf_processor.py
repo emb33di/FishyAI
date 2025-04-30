@@ -87,27 +87,66 @@ class PDFProcessor:
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
-        # Try native extraction
-        docs = PyPDFLoader(path).load()
-        if any(d.page_content.strip() for d in docs):
-            return docs
+        try:
+            print(f"Attempting to extract text from: {path}")
+            
+            # Try native extraction first
+            try:
+                print("Attempting PyPDFLoader extraction...")
+                docs = PyPDFLoader(path).load()
+                if any(d.page_content.strip() for d in docs):
+                    print(f"Successfully extracted {len(docs)} pages using PyPDFLoader")
+                    return docs
+                print("PyPDFLoader extraction returned empty content")
+            except Exception as e:
+                print(f"PyPDFLoader extraction failed: {str(e)}")
 
-        # Try unstructured loader
-        docs = UnstructuredPDFLoader(path, mode='elements').load()
-        if any(d.page_content.strip() for d in docs):
-            return docs
+            # Try unstructured loader with different modes
+            try:
+                print("Attempting UnstructuredPDFLoader extraction...")
+                # Try different modes
+                for mode in ['elements', 'single', 'paged']:
+                    try:
+                        docs = UnstructuredPDFLoader(path, mode=mode).load()
+                        if any(d.page_content.strip() for d in docs):
+                            print(f"Successfully extracted {len(docs)} pages using UnstructuredPDFLoader with mode {mode}")
+                            return docs
+                    except Exception as e:
+                        print(f"UnstructuredPDFLoader extraction failed with mode {mode}: {str(e)}")
+                        continue
+            except Exception as e:
+                print(f"All UnstructuredPDFLoader attempts failed: {str(e)}")
 
-        # OCR fallback
-        pages = convert_from_path(path)
-        ocr_docs = []
-        for i, img in enumerate(pages, start=1):
-            text = pytesseract.image_to_string(img)
-            if text.strip():
-                ocr_docs.append(Document(
-                    page_content=text,
-                    metadata={'source': os.path.basename(path), 'page': i}
-                ))
-        return ocr_docs
+            # OCR fallback with error handling
+            try:
+                print("Attempting OCR extraction...")
+                pages = convert_from_path(path, dpi=200)  # Lower DPI for better performance
+                ocr_docs = []
+                for i, img in enumerate(pages, start=1):
+                    try:
+                        text = pytesseract.image_to_string(img)
+                        if text.strip():
+                            ocr_docs.append(Document(
+                                page_content=text,
+                                metadata={'source': os.path.basename(path), 'page': i}
+                            ))
+                            print(f"Successfully OCR'd page {i}")
+                    except Exception as e:
+                        print(f"Error processing page {i} of {path}: {str(e)}")
+                        continue
+                if ocr_docs:
+                    print(f"Successfully OCR'd {len(ocr_docs)} pages")
+                    return ocr_docs
+                print("OCR extraction returned no content")
+            except Exception as e:
+                print(f"Error in OCR processing of {path}: {str(e)}")
+
+            print(f"All extraction methods failed for {path}")
+            return []
+
+        except Exception as e:
+            print(f"Error processing PDF {path}: {str(e)}")
+            return []
 
     def process_pdfs(self) -> Tuple[bool, str]:
         """Load, split, and index all PDFs, using cache when valid."""

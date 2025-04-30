@@ -47,16 +47,8 @@ class PropertyLawAgent:
     def ask_question(self, question: str) -> Dict[str, any]:
         """Ask a question about property law and get an answer."""
         try:
-            # Get relevant documents for the question
-            relevant_docs = self.pdf_processor.get_relevant_documents(
-                question, 
-                k_cases=10, 
-                k_slides=2,
-                k_general=2
-            )
-            
-            # Sort relevant_docs to prioritize slides
-            relevant_docs.sort(key=lambda doc: 0 if "slides" in doc['source'].lower() else 1)
+            # Get relevant documents for the question - without type segregation
+            relevant_docs = self.pdf_processor.get_relevant_documents(question, k=14)
             
             # Create combined context without separating by type
             context = ""
@@ -64,16 +56,15 @@ class PropertyLawAgent:
                 content = f"From {doc['source']}:\n{doc['content']}"
                 context += content + "\n\n"
             
-            # Create a system message that emphasizes checking all types of content
+            # Create a system message that emphasizes checking all content
             system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
 
             IMPORTANT INSTRUCTIONS:
             1. For each statement you make, explicitly cite the source from the context provided.
             2. Use the format: (Source: filename.pdf) after each citation.
-            3. ALWAYS FIRST CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
-            4. Only cite sources that are actually provided in the context.
-            5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
-            6. Synthesize a comprehensive answer covering all relevant material.
+            3. Only cite sources that are actually provided in the context.
+            4. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
+            5. Synthesize a comprehensive answer covering all relevant material.
 
             Context:
             {context}
@@ -105,7 +96,7 @@ class PropertyLawAgent:
                     print(f"Error calling OpenAI API: {str(e)}")
                 raise
             
-            # Simply track all sources used in the provided context
+            # Track all sources used in the provided context
             used_sources = [doc['source'] for doc in relevant_docs]
             
             # Update chat history
@@ -114,7 +105,7 @@ class PropertyLawAgent:
             
             return {
                 "answer": answer,
-                "sources": used_sources,  # Include all provided sources
+                "sources": used_sources,
                 "tokens": {
                     "input": response.usage.prompt_tokens,
                     "output": response.usage.completion_tokens,

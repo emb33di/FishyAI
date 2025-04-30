@@ -11,6 +11,7 @@ import streamlit as st
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 import numpy as np
+from datetime import datetime
 
 
 def _hash_file(path: str) -> str:
@@ -51,7 +52,7 @@ class PDFProcessor:
         self.metadata = self._load_metadata()
         self.chunks_cache_path = os.path.join(self.cache_dir, 'chunks.pkl')
 
-    @st.cache_resource(show_spinner=False, ttl=3600)
+    @st.cache_resource(show_spinner=False)  # Remove TTL to prevent expiration
     def _get_embeddings(_self):
         """Get OpenAI embeddings model"""
         try:
@@ -60,7 +61,7 @@ class PDFProcessor:
             print(f"Error initializing OpenAI embeddings: {e}")
             raise RuntimeError("Failed to initialize OpenAI embeddings")
 
-    @st.cache_resource(ttl=3600)
+    @st.cache_resource(show_spinner=False)  # Remove TTL entirely
     def _load_index(_self):
         """Load the index with error handling"""
         try:
@@ -107,12 +108,29 @@ class PDFProcessor:
             pickle.dump(chunks, f)
 
     def _needs_reindex(self, files: List[str]) -> bool:
+        """Determine if reindexing is required based on file changes or missing index"""
+        # Check if index exists
         if not self.index:
+            print("Index not found, reindexing required")
             return True
+            
+        # Check if the number of files changed
+        indexed_files = set(self.metadata.keys())
+        current_files = set(files)
+        
+        if indexed_files != current_files:
+            print(f"File list changed. Previously had {len(indexed_files)}, now have {len(current_files)}")
+            return True
+            
+        # Check if any file content has changed
         for pdf in files:
             path = os.path.join(self.pdf_dir, pdf)
-            if self.metadata.get(pdf) != _hash_file(path):
+            current_hash = _hash_file(path)
+            if self.metadata.get(pdf) != current_hash:
+                print(f"File {pdf} changed, reindexing required")
                 return True
+                
+        print("No changes detected, using existing index")
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
@@ -200,10 +218,15 @@ class PDFProcessor:
         pdfs = [f for f in os.listdir(self.pdf_dir) if f.lower().endswith('.pdf')]
         if not pdfs:
             return False, "No PDFs found."
-
+            
+        # Check last processing timestamp to prevent frequent reprocessing
+        timestamp_file = os.path.join(self.cache_dir, 'last_processed.txt')
+        
         # If index exists and no PDFs have changed, use cached index
-        if not self._needs_reindex(pdfs):
-            return True, f"Using cached index for {len(pdfs)} PDFs."
+        if os.path.exists(timestamp_file) and not self._needs_reindex(pdfs):
+            with open(timestamp_file, 'r') as f:
+                last_processed = f.read().strip()
+            return True, f"Using cached index from {last_processed} for {len(pdfs)} PDFs."
 
         # Check if we have cached chunks that we can reuse
         cached_chunks = self._load_cached_chunks()
@@ -241,6 +264,12 @@ class PDFProcessor:
 
         self.index = index
         self._save_metadata()
+        
+        # Save timestamp when completed successfully
+        with open(timestamp_file, 'w') as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(timestamp)
+            
         return True, f"Indexed {len(pdfs)} PDFs into {len(chunks)} chunks."
 
     def query(self, text: str, k: int = 5) -> List[Dict]:

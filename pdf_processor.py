@@ -20,7 +20,7 @@ class LocalHuggingFaceEmbeddings:
     Local embedding model using HuggingFace's sentence-transformers
     with offline support
     """
-    def __init__(self, model_name="all-MiniLM-L6-v2", cache_folder=None):
+    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", cache_folder=None):
         """Initialize with a specific model from sentence-transformers"""
         self.model_name = model_name
         self.cache_folder = cache_folder or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")

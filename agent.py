@@ -50,7 +50,7 @@ class PropertyLawAgent:
             # Get relevant documents for the question
             relevant_docs = self.pdf_processor.get_relevant_documents(
                 question, 
-                k_cases=3, 
+                k_cases=10, 
                 k_slides=2,
                 k_general=2
             )
@@ -70,7 +70,7 @@ class PropertyLawAgent:
             IMPORTANT INSTRUCTIONS:
             1. For each statement you make, explicitly cite the source from the context provided.
             2. Use the format: (Source: filename.pdf) after each citation.
-            3. ALWAYS CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
+            3. ALWAYS FIRST CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
             4. Only cite sources that are actually provided in the context.
             5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
             6. Synthesize a comprehensive answer covering all relevant material.

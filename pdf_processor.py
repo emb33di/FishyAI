@@ -9,59 +9,66 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+import spacy
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-class TfidfEmbeddings:
+class SpacyEmbeddings:
     """
-    Local embedding model using scikit-learn's TF-IDF Vectorizer
+    Local embedding model using spaCy's word vectors
     """
-    def __init__(self, max_features=5000):
-        """Initialize with a specific TF-IDF configuration"""
-        self.vectorizer = TfidfVectorizer(
-            max_features=max_features,
-            stop_words='english',
-            lowercase=True,
-            analyzer='word',
-            ngram_range=(1, 2),  # Use unigrams and bigrams
-            norm='l2'  # Use L2 norm for vectors
-        )
-        self.is_fitted = False
+    def __init__(self, model_name="en_core_web_md"):
+        """Initialize with a specific spaCy model"""
+        try:
+            self.nlp = spacy.load(model_name)
+        except OSError:
+            # Download the model if it's not available
+            import subprocess
+            print(f"Downloading spaCy model {model_name}...")
+            subprocess.run(['python', '-m', 'spacy', 'download', model_name], check=True)
+            self.nlp = spacy.load(model_name)
+            
+        # Check if the model has word vectors
+        if not self.nlp.has_pipe("tok2vec"):
+            raise ValueError(f"The spaCy model '{model_name}' does not have word vectors")
+            
         self.vectors = None
         self.texts = None
-
-    def fit_vectorizer(self, texts):
-        """Fit the vectorizer on the provided texts"""
-        if not texts:
-            raise ValueError("Cannot fit TF-IDF vectorizer on empty text list")
-        self.vectorizer.fit(texts)
-        self.is_fitted = True
         
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Get embeddings for a list of documents"""
-        if not self.is_fitted:
-            self.fit_vectorizer(texts)
+        # Process texts in batches for better performance
+        docs = list(self.nlp.pipe(texts, batch_size=20, disable=["ner", "parser"]))
+        
+        # Calculate document embeddings (mean of word vectors)
+        embeddings = []
+        for doc in docs:
+            # Skip empty docs
+            if len(doc) == 0:
+                embeddings.append(np.zeros(self.nlp.vocab.vectors.shape[1]))
+                continue
+                
+            # Use mean of word vectors for document embedding
+            doc_vector = doc.vector
+            embeddings.append(doc_vector)
             
         # Store for future similarity searches
         self.texts = texts
-        self.vectors = self.vectorizer.transform(texts)
+        self.vectors = np.array(embeddings)
         
-        # Return as dense arrays for compatibility with existing code
-        return self.vectors.toarray().tolist()
+        return embeddings.tolist()
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""
-        if not self.is_fitted:
-            raise ValueError("TF-IDF vectorizer needs to be fitted before embedding queries")
-        return self.vectorizer.transform([text]).toarray()[0].tolist()
+        doc = self.nlp(text, disable=["ner", "parser"])
+        return doc.vector.tolist()
     
     def similarity_search(self, query_embedding, k=5):
         """Perform similarity search between the query and the stored document vectors"""
-        if not self.is_fitted or self.vectors is None:
+        if self.vectors is None:
             raise ValueError("No documents have been embedded yet")
             
-        # Convert query embedding to scipy sparse format for efficiency if needed
+        # Convert query embedding to numpy array
         query_embedding = np.array(query_embedding).reshape(1, -1)
         
         # Calculate cosine similarity
@@ -75,9 +82,9 @@ class TfidfEmbeddings:
 
 class FAISSEquivalent:
     """
-    A simplified FAISS-like interface using TF-IDF embeddings for compatibility
+    A simplified FAISS-like interface using spaCy embeddings for compatibility
     """
-    def __init__(self, embeddings: TfidfEmbeddings, documents: List[Document]):
+    def __init__(self, embeddings: SpacyEmbeddings, documents: List[Document]):
         self.embeddings = embeddings
         self.documents = documents
         self.doc_texts = [doc.page_content for doc in documents]
@@ -86,7 +93,7 @@ class FAISSEquivalent:
         self.embeddings.embed_documents(self.doc_texts)
     
     @classmethod
-    def from_documents(cls, documents: List[Document], embeddings: TfidfEmbeddings):
+    def from_documents(cls, documents: List[Document], embeddings: SpacyEmbeddings):
         """Create a FAISSEquivalent instance from documents and embeddings"""
         return cls(embeddings, documents)
     
@@ -109,17 +116,15 @@ class FAISSEquivalent:
         with open(os.path.join(folder_path, 'documents.pkl'), 'wb') as f:
             pickle.dump(self.documents, f)
         
-        # Save embeddings model and data
+        # Save embeddings data
         with open(os.path.join(folder_path, 'embeddings.pkl'), 'wb') as f:
             pickle.dump({
-                'vectorizer': self.embeddings.vectorizer,
-                'is_fitted': self.embeddings.is_fitted,
                 'texts': self.embeddings.texts,
                 'vectors': self.embeddings.vectors
             }, f)
     
     @classmethod
-    def load_local(cls, folder_path: str, embedding_instance: TfidfEmbeddings = None):
+    def load_local(cls, folder_path: str, embedding_instance: SpacyEmbeddings = None):
         """Load the index and documents from a local folder"""
         # Load documents
         with open(os.path.join(folder_path, 'documents.pkl'), 'rb') as f:
@@ -130,9 +135,7 @@ class FAISSEquivalent:
             emb_data = pickle.load(f)
         
         # Create or update embeddings instance
-        embeddings = embedding_instance or TfidfEmbeddings()
-        embeddings.vectorizer = emb_data['vectorizer']
-        embeddings.is_fitted = emb_data['is_fitted']
+        embeddings = embedding_instance or SpacyEmbeddings()
         embeddings.texts = emb_data['texts']
         embeddings.vectors = emb_data['vectors']
         
@@ -152,7 +155,7 @@ def _hash_file(path: str) -> str:
 class PDFProcessor:
     """
     Extracts text from PDFs (with OCR fallback), splits into chunks,
-    and indexes content using TF-IDF vectors with caching.
+    and indexes content using spaCy embeddings with caching.
     """
     def __init__(
         self,
@@ -160,14 +163,14 @@ class PDFProcessor:
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         cache_subdir: str = ".cache",
-        max_features: int = 5000  # TF-IDF parameter
+        spacy_model: str = "en_core_web_md"  # Medium-sized English model with word vectors
     ):
         self.pdf_dir = pdf_dir
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
-        # Use TF-IDF embeddings instead of HuggingFace
-        self.max_features = max_features
+        # Use spaCy embeddings instead of TF-IDF
+        self.spacy_model = spacy_model
         self.embeddings = self._get_embeddings()
         
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -181,8 +184,8 @@ class PDFProcessor:
 
     @st.cache_resource(show_spinner=False)
     def _get_embeddings(_self):
-        """Get TF-IDF embeddings model"""
-        return TfidfEmbeddings(max_features=_self.max_features)
+        """Get spaCy embeddings model"""
+        return SpacyEmbeddings(model_name=_self.spacy_model)
 
     @st.cache_resource
     def _load_index(_self) -> FAISSEquivalent:
@@ -221,7 +224,6 @@ class PDFProcessor:
 
     def _extract_text(self, path: str) -> List[Document]:
         # Existing implementation - no changes needed
-        # ... (keep all the existing extraction code)
         try:
             print(f"Attempting to extract text from: {path}")
             
@@ -326,8 +328,8 @@ class PDFProcessor:
         # Print info about chunking
         print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
         
-        # Create the index with TF-IDF embeddings
-        print("Creating index with TF-IDF embeddings...")
+        # Create the index with spaCy embeddings
+        print("Creating index with spaCy embeddings...")
         index = FAISSEquivalent.from_documents(chunks, self.embeddings)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')

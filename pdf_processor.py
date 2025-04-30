@@ -16,11 +16,20 @@ class SentenceTransformerEmbeddings:
     """
     Local embedding model using Hugging Face's Sentence Transformers
     """
-    def __init__(self, model_name="all-mpnet-base-v2"):
+    def __init__(self, model_name="all-MiniLM-L6-v2"):
         """Initialize with a specific Sentence Transformer model"""
         try:
             from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(model_name)
+            
+            # Try to load from local model cache first
+            local_model_path = os.path.join(os.path.dirname(__file__), "model_cache", model_name)
+            if os.path.exists(local_model_path):
+                print(f"Loading model from local cache: {local_model_path}")
+                self.model = SentenceTransformer(local_model_path)
+            else:
+                # Fall back to downloading from HuggingFace
+                self.model = SentenceTransformer(model_name)
+                
         except ImportError:
             # Install sentence_transformers if not available
             import subprocess
@@ -345,3 +354,8 @@ class PDFProcessor:
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}
             for doc in results
         ]
+
+# Download script to run once on your development machine
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("all-MiniLM-L6-v2")
+model.save("./model_cache/all-MiniLM-L6-v2")

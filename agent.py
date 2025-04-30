@@ -50,10 +50,13 @@ class PropertyLawAgent:
             # Get relevant documents for the question
             relevant_docs = self.pdf_processor.get_relevant_documents(
                 question, 
-                k_cases=2, 
+                k_cases=3, 
                 k_slides=2,
                 k_general=2
             )
+            
+            # Sort relevant_docs to prioritize slides
+            relevant_docs.sort(key=lambda doc: 0 if "slides" in doc['source'].lower() else 1)
             
             # Create combined context without separating by type
             context = ""
@@ -64,17 +67,17 @@ class PropertyLawAgent:
             # Create a system message that emphasizes checking all types of content
             system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
 
-IMPORTANT INSTRUCTIONS:
-1. For each statement you make, explicitly cite the source from the context provided.
-2. Use the format: (Source: filename.pdf) after each citation.
-3. ALWAYS CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
-4. Only cite sources that are actually provided in the context.
-5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
-6. Synthesize a comprehensive answer covering all relevant material.
+            IMPORTANT INSTRUCTIONS:
+            1. For each statement you make, explicitly cite the source from the context provided.
+            2. Use the format: (Source: filename.pdf) after each citation.
+            3. ALWAYS CHECK THROUGH ANY FILES LABELED "slides" - they contain the professor's key points and are most relevant for the exam.
+            4. Only cite sources that are actually provided in the context.
+            5. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
+            6. Synthesize a comprehensive answer covering all relevant material.
 
-Context:
-{context}
-"""
+            Context:
+            {context}
+            """
             
             # Prepare messages for the chat
             messages = [

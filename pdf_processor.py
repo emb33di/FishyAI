@@ -124,17 +124,30 @@ class PDFProcessor:
             # Process each PDF
             documents = []
             for pdf_file in pdf_files:
-                pdf_path = os.path.join(self.pdf_directory, pdf_file)
-                loader = PyPDFLoader(pdf_path)
-                documents.extend(loader.load())
-                
-                # Update cache metadata with current file hash
-                self.cache_metadata["pdfs"][pdf_file] = self._get_pdf_hash(pdf_path)
+                try:
+                    pdf_path = os.path.join(self.pdf_directory, pdf_file)
+                    st.write(f"Processing {pdf_file}...")  # Debug log
+                    loader = PyPDFLoader(pdf_path)
+                    pdf_docs = loader.load()
+                    st.write(f"Loaded {len(pdf_docs)} pages from {pdf_file}")  # Debug log
+                    documents.extend(pdf_docs)
+                    
+                    # Update cache metadata with current file hash
+                    self.cache_metadata["pdfs"][pdf_file] = self._get_pdf_hash(pdf_path)
+                except Exception as e:
+                    st.error(f"Error processing {pdf_file}: {str(e)}")  # Debug log
+                    continue
+            
+            if not documents:
+                return False, "No documents were successfully loaded from the PDFs."
             
             # Split documents into chunks
+            st.write(f"Splitting {len(documents)} documents into chunks...")  # Debug log
             splits = self.text_splitter.split_documents(documents)
+            st.write(f"Created {len(splits)} chunks")  # Debug log
             
             # Create and save vector store (cached)
+            st.write("Creating vector store...")  # Debug log
             self.vector_store = create_and_save_vectorstore(splits, self.embeddings)
             
             # Save updated cache metadata
@@ -158,13 +171,21 @@ class PDFProcessor:
         """
         if not self.vector_store:
             # Use cached loading
+            st.write("Loading vector store from disk...")  # Debug log
             self.vector_store = load_vectorstore_from_disk(self.embeddings)
             if not self.vector_store:
+                st.error("No vector store available")  # Debug log
                 return []
         
         try:
             # Search all documents
+            st.write(f"Searching for documents with query: {query}")  # Debug log
             docs = self.vector_store.similarity_search(query, k=k)
+            st.write(f"Found {len(docs)} relevant documents")  # Debug log
+            
+            # Log the sources of found documents
+            sources = [doc.metadata.get("source", "Unknown") for doc in docs]
+            st.write(f"Document sources: {sources}")  # Debug log
             
             # Return formatted documents
             return [

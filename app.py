@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import time
-from agent import PropertyLawAgent
+from agent import DocumentAgent
 
 # Page configuration
 st.set_page_config(
@@ -81,7 +81,7 @@ def main():
     if "agent" not in st.session_state:
         # Get PDF directory - adjust this path as needed
         pdf_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pdfs")
-        st.session_state.agent = PropertyLawAgent(pdf_directory)
+        st.session_state.agent = DocumentAgent(pdf_directory)
         st.session_state.chat_history = []
         st.session_state.pdfs_loaded = False
     

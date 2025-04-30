@@ -125,7 +125,7 @@ if 'user_id' not in st.session_state:
 if 'agent' not in st.session_state:
     try:
         with st.spinner("Initializing Property Law Assistant..."):
-            st.session_state.agent = DocumentAgent("pdfs")
+            st.session_state.agent = PropertyLawAgent("pdfs")
             success, message = st.session_state.agent.process_documents()
             st.session_state.initial_load_message = message
     except Exception as e:

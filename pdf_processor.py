@@ -77,7 +77,7 @@ class PDFProcessor:
         self.metadata = self._load_metadata()
 
     @st.cache_resource(show_spinner=False)
-    def _get_embeddings(self):
+    def _get_embeddings(_self):
         """Get local embeddings model"""
         return LocalHuggingFaceEmbeddings(model_name=self.embedding_model)
 

@@ -48,7 +48,7 @@ class PropertyLawAgent:
         """Ask a question about property law and get an answer."""
         try:
             # Get relevant documents for the question
-            relevant_docs = self.pdf_processor.get_relevant_documents(question, k=6)
+            relevant_docs = self.pdf_processor.get_relevant_documents(question, k_slides=2, k_cases=3, k_general=1 )
             
             # Create context from relevant documents
             context = "\n\n".join([f"From {doc['source']}:\n{doc['content']}" for doc in relevant_docs])

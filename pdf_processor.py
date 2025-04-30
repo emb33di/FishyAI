@@ -1,5 +1,3 @@
-# pdf_processor.py
-
 import os
 import pickle
 import hashlib
@@ -12,21 +10,53 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
+from sentence_transformers import SentenceTransformer
+from langchain.embeddings import HuggingFaceBgeEmbeddings
 
 
 class LocalHuggingFaceEmbeddings:
     """
     Local embedding model using HuggingFace's sentence-transformers
+    with offline support
     """
-    def __init__(self, model_name="all-MiniLM-L6-v2"):
+    def __init__(self, model_name="all-MiniLM-L6-v2", cache_folder=None):
         """Initialize with a specific model from sentence-transformers"""
         self.model_name = model_name
+        self.cache_folder = cache_folder or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        os.makedirs(self.cache_folder, exist_ok=True)
         self.model = self._load_model()
 
     @st.cache_resource
     def _load_model(_self):
         """Load the model with caching for better performance"""
-        return HuggingFaceEmbeddings(model_name=_self.model_name)
+        try:
+            # Try with explicit cache folder
+            return HuggingFaceEmbeddings(
+                model_name=_self.model_name,
+                cache_folder=_self.cache_folder
+            )
+        except Exception as e:
+            print(f"Error loading HuggingFaceEmbeddings: {e}")
+            # Fallback to direct SentenceTransformer
+            try:
+                print(f"Attempting to load model directly with SentenceTransformer...")
+                model = SentenceTransformer(_self.model_name, cache_folder=_self.cache_folder)
+                
+                # Create a wrapper compatible with LangChain
+                class STWrapper:
+                    def __init__(self, model):
+                        self.model = model
+                        
+                    def embed_documents(self, texts):
+                        return self.model.encode(texts).tolist()
+                        
+                    def embed_query(self, text):
+                        return self.model.encode(text).tolist()
+                
+                return STWrapper(model)
+            except Exception as e2:
+                print(f"Failed to load model directly: {e2}")
+                raise RuntimeError(f"Could not load embedding model: {e2}")
     
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Get embeddings for a list of documents"""

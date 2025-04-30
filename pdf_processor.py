@@ -20,13 +20,21 @@ class SpacyEmbeddings:
     def __init__(self, model_name="en_core_web_md"):
         """Initialize with a specific spaCy model"""
         try:
+            import spacy
             self.nlp = spacy.load(model_name)
         except OSError:
-            # Download the model if it's not available
+            # Download the model using pip instead of spacy download command
             import subprocess
-            print(f"Downloading spaCy model {model_name}...")
-            subprocess.run(['python', '-m', 'spacy', 'download', model_name], check=True)
-            self.nlp = spacy.load(model_name)
+            import sys
+            print(f"Downloading spaCy model {model_name} via pip...")
+            try:
+                subprocess.run([sys.executable, '-m', 'pip', 'install', f"{model_name}"], 
+                               check=True, capture_output=True)
+                import spacy
+                self.nlp = spacy.load(model_name)
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to download model: {e.stderr.decode()}")
+                raise ValueError(f"Could not download spaCy model {model_name}. Please install manually.")
             
         # Check if the model has word vectors
         if not self.nlp.has_pipe("tok2vec"):

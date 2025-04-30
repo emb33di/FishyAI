@@ -8,18 +8,18 @@ from dotenv import load_dotenv
 import streamlit as st
 from pdf_processor import PDFProcessor
 
-class DocumentAgent:
+class PropertyLawAgent:
     def __init__(self, pdf_directory: str = "pdfs"):
         self.pdf_directory = pdf_directory
         self.processor = PDFProcessor(pdf_directory)
         
-    def process_documents(self) -> tuple[bool, str]:
-        """Process all documents in the PDF directory."""
+    def load_pdfs(self) -> tuple[bool, str]:
+        """Load and process all PDFs in the directory."""
         return self.processor.load_and_process_pdfs()
     
-    def query_documents(self, query: str, k: int = 5) -> List[Dict]:
+    def query_documents(self, query: str, k_slides: int = 3, k_cases: int = 2, k_general: int = 1) -> List[Dict]:
         """Query the processed documents for relevant information."""
-        return self.processor.get_relevant_documents(query, k=k)
+        return self.processor.get_relevant_documents(query, k_slides=k_slides, k_cases=k_cases, k_general=k_general)
     
     def get_document_summary(self, query: str) -> str:
         """Get a summary of relevant documents for a query."""
@@ -41,14 +41,14 @@ class DocumentAgent:
         return [f for f in os.listdir(self.pdf_directory) if f.endswith('.pdf')]
 
 def main():
-    st.title("Document Processing Agent")
+    st.title("Property Law Document Processing Agent")
     
     # Initialize agent
-    agent = DocumentAgent()
+    agent = PropertyLawAgent()
     
     # Process documents
     with st.spinner("Processing documents..."):
-        success, message = agent.process_documents()
+        success, message = agent.load_pdfs()
         if success:
             st.success(message)
         else:

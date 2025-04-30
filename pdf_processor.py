@@ -11,7 +11,6 @@ from langchain.vectorstores import FAISS
 import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
 from sentence_transformers import SentenceTransformer
-from langchain.embeddings import HuggingFaceBgeEmbeddings
 import requests
 
 
@@ -20,7 +19,7 @@ class LocalHuggingFaceEmbeddings:
     Local embedding model using HuggingFace's sentence-transformers
     with offline support
     """
-    def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", cache_folder=None):
+    def __init__(self, model_name="all-MiniLM-L6-v2", cache_folder=None):
         """Initialize with a specific model from sentence-transformers"""
         self.model_name = model_name
         self.cache_folder = cache_folder or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
@@ -31,9 +30,16 @@ class LocalHuggingFaceEmbeddings:
     def _load_model(_self):
         """Load the model with caching for better performance"""
         try:
+            # Add "sentence-transformers/" prefix if not already present
+            model_name = _self.model_name
+            if not model_name.startswith("sentence-transformers/") and not "/" in model_name:
+                model_name = f"sentence-transformers/{model_name}"
+                
+            print(f"Loading embedding model: {model_name}")
+            
             # Try with explicit cache folder
             return HuggingFaceEmbeddings(
-                model_name=_self.model_name,
+                model_name=model_name,
                 cache_folder=_self.cache_folder
             )
         except Exception as e:
@@ -41,7 +47,14 @@ class LocalHuggingFaceEmbeddings:
             # Fallback to direct SentenceTransformer
             try:
                 print(f"Attempting to load model directly with SentenceTransformer...")
-                model = SentenceTransformer(_self.model_name, cache_folder=_self.cache_folder)
+                # Try with or without prefix
+                try:
+                    model = SentenceTransformer(model_name, cache_folder=_self.cache_folder)
+                except Exception:
+                    # Try without prefix if that failed
+                    if model_name.startswith("sentence-transformers/"):
+                        model_name_alt = model_name.replace("sentence-transformers/", "")
+                        model = SentenceTransformer(model_name_alt, cache_folder=_self.cache_folder)
                 
                 # Create a wrapper compatible with LangChain
                 class STWrapper:

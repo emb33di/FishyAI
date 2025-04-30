@@ -79,7 +79,7 @@ class PDFProcessor:
     @st.cache_resource(show_spinner=False)
     def _get_embeddings(_self):
         """Get local embeddings model"""
-        return LocalHuggingFaceEmbeddings(model_name=self.embedding_model)
+        return LocalHuggingFaceEmbeddings(model_name=_self.embedding_model)
 
     @st.cache_resource
     def _load_index(_self) -> FAISS:

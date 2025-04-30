@@ -3,15 +3,38 @@
 import os
 import pickle
 import hashlib
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 from pdf2image import convert_from_path
 import pytesseract
 from langchain.document_loaders import PyPDFLoader, UnstructuredPDFLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 import streamlit as st
+from langchain.embeddings import HuggingFaceEmbeddings
+
+
+class LocalHuggingFaceEmbeddings:
+    """
+    Local embedding model using HuggingFace's sentence-transformers
+    """
+    def __init__(self, model_name="all-MiniLM-L6-v2"):
+        """Initialize with a specific model from sentence-transformers"""
+        self.model_name = model_name
+        self.model = self._load_model()
+
+    @st.cache_resource
+    def _load_model(_self):
+        """Load the model with caching for better performance"""
+        return HuggingFaceEmbeddings(model_name=_self.model_name)
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Get embeddings for a list of documents"""
+        return self.model.embed_documents(texts)
+    
+    def embed_query(self, text: str) -> List[float]:
+        """Get embedding for a query text"""
+        return self.model.embed_query(text)
 
 
 def _hash_file(path: str) -> str:
@@ -33,13 +56,17 @@ class PDFProcessor:
         pdf_dir: str,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
-        cache_subdir: str = ".cache"
+        cache_subdir: str = ".cache",
+        embedding_model: str = "all-MiniLM-L6-v2"  # Default model
     ):
         self.pdf_dir = pdf_dir
         self.cache_dir = os.path.join(pdf_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
-
+        
+        # Use local embeddings instead of OpenAI
+        self.embedding_model = embedding_model
         self.embeddings = self._get_embeddings()
+        
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -49,10 +76,10 @@ class PDFProcessor:
         self.meta_path = os.path.join(self.cache_dir, 'metadata.pkl')
         self.metadata = self._load_metadata()
 
-    @staticmethod
     @st.cache_resource(show_spinner=False)
-    def _get_embeddings() -> OpenAIEmbeddings:
-        return OpenAIEmbeddings()
+    def _get_embeddings(self):
+        """Get local embeddings model"""
+        return LocalHuggingFaceEmbeddings(model_name=self.embedding_model)
 
     @st.cache_resource
     def _load_index(_self) -> FAISS:
@@ -60,8 +87,11 @@ class PDFProcessor:
         if os.path.exists(index_path):
             try:
                 return FAISS.load_local(index_path, _self.embeddings)
-            except Exception:
-                os.remove(index_path)
+            except Exception as e:
+                print(f"Error loading index: {e}")
+                # If embedding dimension changed, we need to reindex
+                import shutil
+                shutil.rmtree(index_path)
         return None
 
     def _load_metadata(self) -> Dict[str, str]:
@@ -187,7 +217,14 @@ class PDFProcessor:
             return False, "No text extracted from PDFs."
 
         chunks = self.text_splitter.split_documents(all_docs)
+        
+        # Print info about chunking
+        print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
+        
+        # Create the FAISS index with local embeddings
+        print("Creating FAISS index with local embeddings...")
         index = FAISS.from_documents(chunks, self.embeddings)
+        
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)
         index.save_local(index_path)

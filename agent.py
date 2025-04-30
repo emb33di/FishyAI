@@ -71,10 +71,10 @@ class PropertyLawAgent:
                 else:  # general
                     general_context += content + "\n\n"
             
-            # Create a combined context with clear sections
+            # Create a combined context with clear sections, putting slides first
             context = ""
             if slides_context:
-                context += "SLIDE CONTENT:\n" + slides_context
+                context += "IMPORTANT SLIDE CONTENT (CHECK THIS FIRST):\n" + slides_context
             if cases_context:
                 context += "CASE CONTENT:\n" + cases_context
             if general_context:
@@ -86,13 +86,13 @@ class PropertyLawAgent:
 IMPORTANT INSTRUCTIONS:
 1. For each statement you make, explicitly cite the source from the context provided.
 2. Use the format: (Source: filename.pdf) after each citation.
-3. Look through ALL available content - slides, cases, and general readings.
-4. Slides typically contain key points from the professor, so prioritize information from slides when available.
-5. Cases provide legal precedents and reasoning, so make sure to reference relevant cases.
-6. General readings provide additional context and explanation.
-7. Only cite sources that are actually provided in the context below.
+3. ALWAYS CHECK THE SLIDES FIRST - they contain the professor's key points and are most relevant for the exam.
+4. When you use information from slides, explicitly mention: (Source: [slide_filename.pdf])
+5. After checking slides, look at cases and general readings to supplement your answer.
+6. Cases provide legal precedents and reasoning, while general readings provide additional context.
+7. Only cite sources that are actually provided in the context.
 8. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
-9. Synthesize a comprehensive answer covering all relevant material from the available sources.
+9. Synthesize a comprehensive answer covering all relevant material, prioritizing slides.
 
 Context:
 {context}
@@ -126,12 +126,31 @@ Context:
             
             # Extract actual sources mentioned in the answer
             mentioned_sources = []
+            mentioned_slide = False
+
+            # First check if any source is explicitly mentioned in the answer
             for doc in relevant_docs:
                 source_name = os.path.basename(doc['source'])
+                doc_type = doc.get("type", "unknown")
+                
+                # Check if this source is mentioned in the answer
                 if source_name in answer:
                     mentioned_sources.append(doc['source'])
+                    if doc_type == "slide":
+                        mentioned_slide = True
 
-            # If no sources are mentioned in the answer, indicate it relied only on outside context
+            # If no slide is mentioned but slides were provided, check if we should add one
+            if not mentioned_slide and slides_context:
+                # Check if the answer contains slide-specific content or mentions slides generally
+                slide_indicators = ["slide", "slides", "presentation", "lecture", "professor", "class"]
+                if any(indicator in answer.lower() for indicator in slide_indicators):
+                    # Add the first slide source if it exists
+                    for doc in relevant_docs:
+                        if doc.get("type", "unknown") == "slide":
+                            mentioned_sources.append(doc['source'])
+                            break
+
+            # If no sources at all are mentioned in the answer, indicate it relied only on outside context
             if not mentioned_sources:
                 mentioned_sources = ["Relied only on outside context for this response"]
             

@@ -91,7 +91,7 @@ IMPORTANT INSTRUCTIONS:
 5. Cases provide legal precedents and reasoning, so make sure to reference relevant cases.
 6. General readings provide additional context and explanation.
 7. Only cite sources that are actually provided in the context below.
-8. If you go beyond provided context, say so explicitly.
+8. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
 9. Synthesize a comprehensive answer covering all relevant material from the available sources.
 
 Context:
@@ -130,10 +130,26 @@ Context:
                 source_name = os.path.basename(doc['source'])
                 if source_name in answer:
                     mentioned_sources.append(doc['source'])
-            
-            # If no sources mentioned but we have relevant docs, use those
-            if not mentioned_sources and relevant_docs:
-                mentioned_sources = [doc["source"] for doc in relevant_docs]
+
+            # If no sources mentioned but we have relevant docs, check if we should use them
+            if not mentioned_sources:
+                # Check if the answer explicitly indicates it's using outside knowledge
+                outside_knowledge_phrases = [
+                    "outside context", 
+                    "external source", 
+                    "general knowledge", 
+                    "beyond provided context",
+                    "not in the provided"
+                ]
+                
+                uses_outside_knowledge = any(phrase in answer.lower() for phrase in outside_knowledge_phrases)
+                
+                if uses_outside_knowledge:
+                    # Use a special indicator for outside knowledge
+                    mentioned_sources = ["Relied on outside context"]
+                elif relevant_docs:  
+                    # Fall back to using the relevant docs if they exist
+                    mentioned_sources = [doc["source"] for doc in relevant_docs]
             
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})

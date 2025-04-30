@@ -114,6 +114,14 @@ def main():
             st.session_state.agent.chat_history = []
             st.experimental_rerun()
     
+    # Debug section
+    with st.expander("Debug Information", expanded=False):
+        st.write("Current PDFs:", st.session_state.agent.get_loaded_pdfs())
+        if st.session_state.pdfs_loaded:
+            st.write("PDFs are loaded")
+        else:
+            st.write("PDFs are not loaded")
+    
     # Display chat history
     for message in st.session_state.chat_history:
         display_message(message["role"], message["content"])

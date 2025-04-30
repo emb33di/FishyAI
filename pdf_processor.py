@@ -2,7 +2,7 @@ import os
 import pickle
 import hashlib
 from typing import List, Dict
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader, UnstructuredPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -126,28 +126,59 @@ class PDFProcessor:
             for pdf_file in pdf_files:
                 try:
                     pdf_path = os.path.join(self.pdf_directory, pdf_file)
-                    st.write(f"Processing {pdf_file}...")  # Debug log
-                    loader = PyPDFLoader(pdf_path)
-                    pdf_docs = loader.load()
-                    st.write(f"Loaded {len(pdf_docs)} pages from {pdf_file}")  # Debug log
+                    st.info(f"Processing {pdf_file}...")  # Debug log
+                    
+                    # Check if file contains "slides" in name - use OCR for slides
+                    if "slides" in pdf_file.lower():
+                        st.info(f"Using OCR-capable loader for {pdf_file}...")
+                        loader = UnstructuredPDFLoader(
+                            pdf_path, 
+                            mode="elements", 
+                            strategy="fast"
+                        )
+                        pdf_docs = loader.load()
+                        st.info(f"{pdf_file} (OCR): {len(pdf_docs)} elements extracted")
+                    else:
+                        # Use regular PDF loader for non-slides
+                        loader = PyPDFLoader(pdf_path)
+                        pdf_docs = loader.load()
+                        st.info(f"{pdf_file}: {len(pdf_docs)} pages, "
+                        f"{sum(1 for d in pdf_docs if d.page_content.strip())} with actual text")
+                    
+                    # Add special metadata for slides
+                    if "slides" in pdf_file.lower():
+                        for doc in pdf_docs:
+                            doc.metadata["document_type"] = "slide"
+                            doc.metadata["priority"] = "high"
+                    
                     documents.extend(pdf_docs)
                     
                     # Update cache metadata with current file hash
                     self.cache_metadata["pdfs"][pdf_file] = self._get_pdf_hash(pdf_path)
                 except Exception as e:
                     st.error(f"Error processing {pdf_file}: {str(e)}")  # Debug log
-                    continue
+                    # Try alternate loader as fallback
+                    try:
+                        st.info(f"Trying alternate loader for {pdf_file}...")
+                        alt_loader = UnstructuredPDFLoader(pdf_path)
+                        pdf_docs = alt_loader.load()
+                        documents.extend(pdf_docs)
+                        st.info(f"Alternate loader successful for {pdf_file}: {len(pdf_docs)} elements")
+                        self.cache_metadata["pdfs"][pdf_file] = self._get_pdf_hash(pdf_path)
+                    except Exception as alt_e:
+                        st.error(f"All loading methods failed for {pdf_file}: {str(alt_e)}")
+                        continue
             
             if not documents:
                 return False, "No documents were successfully loaded from the PDFs."
             
             # Split documents into chunks
-            st.write(f"Splitting {len(documents)} documents into chunks...")  # Debug log
+            st.info(f"Splitting {len(documents)} documents into chunks...")  # Debug log
             splits = self.text_splitter.split_documents(documents)
-            st.write(f"Created {len(splits)} chunks")  # Debug log
+            st.info(f"Created {len(splits)} chunks")  # Debug log
             
             # Create and save vector store (cached)
-            st.write("Creating vector store...")  # Debug log
+            st.info("Creating vector store...")  # Debug log
             self.vector_store = create_and_save_vectorstore(splits, self.embeddings)
             
             # Save updated cache metadata
@@ -158,42 +189,85 @@ class PDFProcessor:
         except Exception as e:
             return False, f"Error processing PDFs: {str(e)}"
     
-    def get_relevant_documents(self, query: str, k: int = 6) -> List[Dict]:
+    def get_relevant_documents(self, query: str, k_slides: int = 3, k_cases: int = 2, k_general: int = 1) -> List[Dict]:
         """
-        Retrieve relevant documents for a query, returning the most semantically relevant documents regardless of type.
+        Retrieve relevant documents for a query, prioritizing slides but also including case documents.
         
         Args:
             query (str): The search query
-            k (int): Number of documents to retrieve
+            k_slides (int): Number of slide documents to retrieve
+            k_cases (int): Number of case documents to retrieve
+            k_general (int): Number of general documents to retrieve if needed
         
         Returns:
             List[Dict]: List of relevant documents
         """
         if not self.vector_store:
             # Use cached loading
-            st.write("Loading vector store from disk...")  # Debug log
+            st.info("Loading vector store from disk...")  # Debug log
             self.vector_store = load_vectorstore_from_disk(self.embeddings)
             if not self.vector_store:
                 st.error("No vector store available")  # Debug log
                 return []
         
         try:
-            # Search all documents
-            st.write(f"Searching for documents with query: {query}")  # Debug log
-            docs = self.vector_store.similarity_search(query, k=k)
-            st.write(f"Found {len(docs)} relevant documents")  # Debug log
+            # First, search specifically for slides related to the query
+            filter_dict = {"document_type": "slide"} 
+            slide_docs = []
+            try:
+                slide_docs = self.vector_store.similarity_search(
+                    query, 
+                    k=k_slides,
+                    filter=filter_dict
+                )
+                st.info(f"Found {len(slide_docs)} slide documents")
+            except Exception as e:
+                st.warning(f"Error searching slides: {str(e)}. Trying without filter.")
+                # Try searching for slides by name if metadata filter fails
+                all_docs = self.vector_store.similarity_search(query, k=k_slides + k_cases + k_general)
+                slide_docs = [doc for doc in all_docs if "slides" in doc.metadata.get("source", "").lower()]
+                slide_docs = slide_docs[:k_slides]  # Limit to requested number
+            
+            # Then, search for case documents or other non-slide documents
+            case_docs = []
+            filter_dict = None  # No filter for general search
+            try:
+                # Get more documents than we need, then filter out any that are already in slides
+                general_docs = self.vector_store.similarity_search(
+                    query, 
+                    k=k_cases + k_general + len(slide_docs),  # Get extra to filter
+                    filter=filter_dict
+                )
+                
+                # Remove any duplicates from slide_docs
+                slide_ids = set(doc.page_content[:100] for doc in slide_docs)  # Use content prefix as ID
+                case_docs = [doc for doc in general_docs 
+                            if doc.page_content[:100] not in slide_ids 
+                            and "slides" not in doc.metadata.get("source", "").lower()]
+                
+                # Limit to requested number
+                case_docs = case_docs[:k_cases + k_general]
+                
+            except Exception as e:
+                st.error(f"Error searching general documents: {str(e)}")
+            
+            # Combine both types of documents, with slides first
+            all_docs = slide_docs + case_docs
+            st.info(f"Found total of {len(all_docs)} relevant documents")
             
             # Log the sources of found documents
-            sources = [doc.metadata.get("source", "Unknown") for doc in docs]
-            st.write(f"Document sources: {sources}")  # Debug log
+            sources = [doc.metadata.get("source", "Unknown") for doc in all_docs]
+            st.info(f"Document sources: {sources}")
             
             # Return formatted documents
             return [
                 {
                     "content": doc.page_content,
-                    "source": doc.metadata.get("source", "Unknown")
+                    "source": doc.metadata.get("source", "Unknown"),
+                    "type": "slide" if "slides" in doc.metadata.get("source", "").lower() or 
+                                  doc.metadata.get("document_type") == "slide" else "case"
                 }
-                for doc in docs
+                for doc in all_docs
             ]
         except Exception as e:
             st.error(f"Error retrieving documents: {str(e)}")

@@ -65,6 +65,7 @@ class PropertyLawAgent:
             3. Only cite sources that are actually provided in the context.
             4. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.
             5. Synthesize a comprehensive answer covering all relevant material.
+            6. First look for sources with a "slides.pdf" or "Slides.pdf" suffix
 
             Context:
             {context}

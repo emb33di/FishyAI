@@ -131,25 +131,9 @@ Context:
                 if source_name in answer:
                     mentioned_sources.append(doc['source'])
 
-            # If no sources mentioned but we have relevant docs, check if we should use them
+            # If no sources are mentioned in the answer, indicate it relied only on outside context
             if not mentioned_sources:
-                # Check if the answer explicitly indicates it's using outside knowledge
-                outside_knowledge_phrases = [
-                    "outside context", 
-                    "external source", 
-                    "general knowledge", 
-                    "beyond provided context",
-                    "not in the provided"
-                ]
-                
-                uses_outside_knowledge = any(phrase in answer.lower() for phrase in outside_knowledge_phrases)
-                
-                if uses_outside_knowledge:
-                    # Use a special indicator for outside knowledge
-                    mentioned_sources = ["Relied on outside context"]
-                elif relevant_docs:  
-                    # Fall back to using the relevant docs if they exist
-                    mentioned_sources = [doc["source"] for doc in relevant_docs]
+                mentioned_sources = ["Relied only on outside context for this response"]
             
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})

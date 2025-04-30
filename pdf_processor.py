@@ -20,21 +20,13 @@ class SpacyEmbeddings:
     def __init__(self, model_name="en_core_web_md"):
         """Initialize with a specific spaCy model"""
         try:
-            import spacy
             self.nlp = spacy.load(model_name)
         except OSError:
-            # Download the model using pip instead of spacy download command
+            # Download the model if it's not available
             import subprocess
-            import sys
-            print(f"Downloading spaCy model {model_name} via pip...")
-            try:
-                subprocess.run([sys.executable, '-m', 'pip', 'install', f"{model_name}"], 
-                               check=True, capture_output=True)
-                import spacy
-                self.nlp = spacy.load(model_name)
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to download model: {e.stderr.decode()}")
-                raise ValueError(f"Could not download spaCy model {model_name}. Please install manually.")
+            print(f"Downloading spaCy model {model_name}...")
+            subprocess.run(['python', '-m', 'spacy', 'download', model_name], check=True)
+            self.nlp = spacy.load(model_name)
             
         # Check if the model has word vectors
         if not self.nlp.has_pipe("tok2vec"):
@@ -59,16 +51,12 @@ class SpacyEmbeddings:
             # Use mean of word vectors for document embedding
             doc_vector = doc.vector
             embeddings.append(doc_vector)
-        
+            
         # Store for future similarity searches
         self.texts = texts
         self.vectors = np.array(embeddings)
         
-        # Make sure we're returning a list of lists
-        if isinstance(embeddings, np.ndarray):
-            return embeddings.tolist()
-        else:
-            return [emb.tolist() if hasattr(emb, 'tolist') else list(emb) for emb in embeddings]
+        return embeddings.tolist()
     
     def embed_query(self, text: str) -> List[float]:
         """Get embedding for a query text"""

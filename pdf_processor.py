@@ -12,6 +12,7 @@ import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
 from sentence_transformers import SentenceTransformer
 from langchain.embeddings import HuggingFaceBgeEmbeddings
+import requests
 
 
 class LocalHuggingFaceEmbeddings:
@@ -272,3 +273,7 @@ class PDFProcessor:
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}
             for doc in results
         ]
+
+
+response = requests.get("https://huggingface.co")
+print(f"Status code: {response.status_code}")

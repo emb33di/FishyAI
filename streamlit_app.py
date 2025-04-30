@@ -1,3 +1,12 @@
+# Fix for torch.classes errors in StreamLit
+import sys
+try:
+    if 'torch.classes' in sys.modules:
+        sys.modules['torch.classes'].__path__ = []
+except Exception:
+    pass
+
+# Continue with your existing imports
 import streamlit as st
 from agent import PropertyLawAgent
 import time

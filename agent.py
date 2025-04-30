@@ -68,7 +68,6 @@ class PropertyLawAgent:
             # Create a system message that emphasizes checking all types of content
             system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
 
-            IMPORTANT INSTRUCTIONS:
             1. For each statement you make, explicitly cite the source from the context provided.
             2. Use the format: (Source: filename.pdf) after each citation.
             3. The content from files including "Slides" is already included in the context above.

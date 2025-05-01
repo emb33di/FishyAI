@@ -6,7 +6,7 @@ from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
 import streamlit as st
-from pdf_processor import PDFProcessor
+from pdf_processor import DocumentProcessor
 
 class PropertyLawAgent:    
     def __init__(self, pdf_directory: str):

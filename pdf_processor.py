@@ -133,55 +133,21 @@ class DocumentProcessor:
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
-        """Extract text from PDFs or PPTXs based on file extension"""
+        """Extract text from PDFs with special handling for converted slides"""
         try:
             print(f"Extracting text from: {path}")
+            file_name = os.path.basename(path)
             
-            # Determine file type and use appropriate loader
             if path.lower().endswith('.pdf'):
+                # Load all PDFs with PyPDFLoader
                 docs = PyPDFLoader(path).load()
-            elif path.lower().endswith(('.ppt', '.pptx')):
-                try:
-                    # Enhanced PowerPoint loading with better metadata
-                    docs = UnstructuredPowerPointLoader(
-                        path, 
-                        mode="elements"  # Extract elements to get better structure
-                    ).load()
-                    
-                    # Enhance metadata for each slide
-                    for i, doc in enumerate(docs):
-                        doc.metadata['slide'] = i + 1
-                        doc.metadata['page'] = i + 1
-                        doc.metadata['format'] = 'ppt'
-                        doc.metadata['filename'] = os.path.basename(path)
-                except ImportError:
-                    print("Error: Required packages missing. Try: pip install unstructured python-pptx")
-                    return []
-                except Exception as e:
-                    print(f"Error in PPT processing: {str(e)}")
-                    # Fallback to basic PPT loading if elements mode fails
-                    try:
-                        docs = UnstructuredPowerPointLoader(path).load()
-                        for i, doc in enumerate(docs):
-                            doc.metadata['slide'] = i + 1
-                            doc.metadata['page'] = i + 1
-                    except Exception:
-                        print(f"Critical failure processing PPT file: {path}")
-                        return []
-            else:
-                print(f"Unsupported file type: {path}")
-                return []
                 
-            if any(d.page_content.strip() for d in docs):
-                print(f"Successfully extracted {len(docs)} pages/slides from {path}")
-                # Enhanced text cleanup
-                for doc in docs:
-                    content = doc.page_content
-                    # Basic cleanup for all document types
-                    content = ' '.join(content.split())
-                    
-                    # Enhanced cleanup for presentation files
-                    if path.lower().endswith(('.ppt', '.pptx')):
+                # Apply special processing for slides converted to PDF
+                if "Slides" in file_name:
+                    print(f"Detected converted slides: {file_name}")
+                    for doc in docs:
+                        content = doc.page_content
+                        
                         # Handle bullet points better
                         content = content.replace('•', '- ')
                         content = re.sub(r'[◦■□▪▫●○]', '- ', content)
@@ -201,8 +167,22 @@ class DocumentProcessor:
                         lines = content.split('\n')
                         if len(lines) > 3 and any(line.strip() == lines[0].strip() for line in lines[1:]):
                             content = '\n'.join(lines[1:])
-                    doc.page_content = content.strip()
-                    
+                            
+                        doc.metadata['is_slide'] = True
+                        doc.page_content = content.strip()
+                else:
+                    # Standard PDF processing - basic cleanup
+                    for doc in docs:
+                        content = doc.page_content
+                        content = ' '.join(content.split())  # Basic whitespace normalization
+                        doc.page_content = content.strip()
+                        
+            else:
+                print(f"Unsupported file type: {path}")
+                return []
+                
+            if any(d.page_content.strip() for d in docs):
+                print(f"Successfully extracted {len(docs)} pages from {path}")
                 # Filter out empty documents
                 docs = [doc for doc in docs if doc.page_content.strip()]
                 return docs

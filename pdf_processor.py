@@ -9,6 +9,7 @@ import streamlit as st
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from datetime import datetime
+import re
 
 
 def _hash_file(path: str) -> str:
@@ -140,22 +141,70 @@ class DocumentProcessor:
             if path.lower().endswith('.pdf'):
                 docs = PyPDFLoader(path).load()
             elif path.lower().endswith(('.ppt', '.pptx')):
-                docs = UnstructuredPowerPointLoader(path).load()
+                try:
+                    # Enhanced PowerPoint loading with better metadata
+                    docs = UnstructuredPowerPointLoader(
+                        path, 
+                        mode="elements"  # Extract elements to get better structure
+                    ).load()
+                    
+                    # Enhance metadata for each slide
+                    for i, doc in enumerate(docs):
+                        doc.metadata['slide'] = i + 1
+                        doc.metadata['page'] = i + 1
+                        doc.metadata['format'] = 'ppt'
+                        doc.metadata['filename'] = os.path.basename(path)
+                except ImportError:
+                    print("Error: Required packages missing. Try: pip install unstructured python-pptx")
+                    return []
+                except Exception as e:
+                    print(f"Error in PPT processing: {str(e)}")
+                    # Fallback to basic PPT loading if elements mode fails
+                    try:
+                        docs = UnstructuredPowerPointLoader(path).load()
+                        for i, doc in enumerate(docs):
+                            doc.metadata['slide'] = i + 1
+                            doc.metadata['page'] = i + 1
+                    except Exception:
+                        print(f"Critical failure processing PPT file: {path}")
+                        return []
             else:
                 print(f"Unsupported file type: {path}")
                 return []
                 
             if any(d.page_content.strip() for d in docs):
-                print(f"Successfully extracted {len(docs)} pages from {path}")
-                # Clean up the extracted text
+                print(f"Successfully extracted {len(docs)} pages/slides from {path}")
+                # Enhanced text cleanup
                 for doc in docs:
                     content = doc.page_content
-                    # Replace multiple spaces with single space
+                    # Basic cleanup for all document types
                     content = ' '.join(content.split())
-                    # Additional cleanup for presentation files
+                    
+                    # Enhanced cleanup for presentation files
                     if path.lower().endswith(('.ppt', '.pptx')):
-                        content = content.replace('•', '- ')  # Fix bullet points
-                    doc.page_content = content
+                        # Handle bullet points better
+                        content = content.replace('•', '- ')
+                        content = re.sub(r'[◦■□▪▫●○]', '- ', content)
+                        
+                        # Fix common formatting issues
+                        content = content.replace('\t', ' ')
+                        content = re.sub(r'\n{2,}', '\n', content)  # Multiple newlines
+                        content = content.replace('\r', '')
+                        
+                        # Fix spacing around punctuation
+                        content = re.sub(r'\s+([.,;:?!])', r'\1', content)
+                        
+                        # Remove slide numbers, footer text and header text patterns
+                        content = re.sub(r'\b\d+\s*/\s*\d+\b', '', content)  # Remove "3/15" style page numbers
+                        
+                        # Remove repeated header/footer text if detected
+                        lines = content.split('\n')
+                        if len(lines) > 3 and any(line.strip() == lines[0].strip() for line in lines[1:]):
+                            content = '\n'.join(lines[1:])
+                    doc.page_content = content.strip()
+                    
+                # Filter out empty documents
+                docs = [doc for doc in docs if doc.page_content.strip()]
                 return docs
                 
             print(f"No content extracted from {path}")

@@ -1,16 +1,13 @@
 import os
 import pickle
 import hashlib
-from typing import List, Dict, Tuple, Any
-from pdf2image import convert_from_path
-import pytesseract
-from langchain.document_loaders import PyPDFLoader, UnstructuredPDFLoader
+from typing import List, Dict, Tuple
+from langchain.document_loaders import PyPDFLoader, UnstructuredPowerPointLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import streamlit as st
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-import numpy as np
 from datetime import datetime
 
 
@@ -33,20 +30,20 @@ def get_openai_embeddings():
         raise RuntimeError("Failed to initialize OpenAI embeddings")
 
 
-class PDFProcessor:
+class DocumentProcessor:
     """
-    Extracts text from PDFs (with OCR fallback), splits into chunks,
+    Extracts text from PDFs and PPTXs, splits into chunks,
     and indexes content using OpenAI embeddings with cost-saving caching.
     """
     def __init__(
         self,
-        pdf_dir: str,
+        docs_dir: str,
         chunk_size: int = 500,
         chunk_overlap: int = 100,
         cache_subdir: str = ".cache"
     ):
-        self.pdf_dir = pdf_dir
-        self.cache_dir = os.path.join(pdf_dir, cache_subdir)
+        self.docs_dir = docs_dir
+        self.cache_dir = os.path.join(docs_dir, cache_subdir)
         os.makedirs(self.cache_dir, exist_ok=True)
         
         # Get embeddings model - cached to prevent multiple initializations
@@ -62,16 +59,7 @@ class PDFProcessor:
         self.metadata = self._load_metadata()
         self.chunks_cache_path = os.path.join(self.cache_dir, 'chunks.pkl')
 
-    @st.cache_resource(show_spinner=False)  # Remove TTL to prevent expiration
-    def _get_embeddings(_self):
-        """Get OpenAI embeddings model"""
-        try:
-            return OpenAIEmbeddings()
-        except Exception as e:
-            print(f"Error initializing OpenAI embeddings: {e}")
-            raise RuntimeError("Failed to initialize OpenAI embeddings")
-
-    @st.cache_resource(show_spinner=False)  # Remove TTL entirely
+    @st.cache_resource(show_spinner=False)
     def _load_index(_self):
         """Load the index with error handling"""
         try:
@@ -133,196 +121,108 @@ class PDFProcessor:
             return True
             
         # Check if any file content has changed
-        for pdf in files:
-            path = os.path.join(self.pdf_dir, pdf)
+        for file in files:
+            path = os.path.join(self.docs_dir, file)
             current_hash = _hash_file(path)
-            if self.metadata.get(pdf) != current_hash:
-                print(f"File {pdf} changed, reindexing required")
+            if self.metadata.get(file) != current_hash:
+                print(f"File {file} changed, reindexing required")
                 return True
                 
         print("No changes detected, using existing index")
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
-        """Extract text from PDFs with multiple fallback methods"""
+        """Extract text from PDFs or PPTXs based on file extension"""
         try:
-            print(f"Attempting to extract text from: {path}")
+            print(f"Extracting text from: {path}")
             
-            # Try unstructured loader first for PowerPoint-converted PDFs
-            try:
-                print("Attempting UnstructuredPDFLoader extraction...")
-                # Try different modes with specific settings for PowerPoint PDFs
-                for mode in ['elements', 'single', 'paged']:
-                    try:
-                        docs = UnstructuredPDFLoader(
-                            path,
-                            mode=mode,
-                            strategy="fast",  # Use fast strategy for better handling of PowerPoint PDFs
-                            include_metadata=True
-                        ).load()
-                        if any(d.page_content.strip() for d in docs):
-                            print(f"Successfully extracted {len(docs)} pages using UnstructuredPDFLoader with mode {mode}")
-                            # Clean up the extracted text
-                            for doc in docs:
-                                # Remove extra whitespace and normalize line breaks
-                                doc.page_content = ' '.join(doc.page_content.split())
-                            return docs
-                    except Exception as e:
-                        print(f"UnstructuredPDFLoader extraction failed with mode {mode}: {str(e)}")
-                        continue
-            except Exception as e:
-                print(f"All UnstructuredPDFLoader attempts failed: {str(e)}")
-
-            # Try native extraction as fallback
-            try:
-                print("Attempting PyPDFLoader extraction...")
+            # Determine file type and use appropriate loader
+            if path.lower().endswith('.pdf'):
                 docs = PyPDFLoader(path).load()
-                if any(d.page_content.strip() for d in docs):
-                    print(f"Successfully extracted {len(docs)} pages using PyPDFLoader")
-                    # Clean up the extracted text
-                    for doc in docs:
-                        doc.page_content = ' '.join(doc.page_content.split())
-                    return docs
-                print("PyPDFLoader extraction returned empty content")
-            except Exception as e:
-                print(f"PyPDFLoader extraction failed: {str(e)}")
-
-            # OCR as last resort
-            try:
-                print("Attempting OCR extraction...")
-                pages = convert_from_path(path, dpi=300)  # Higher DPI for better text recognition
-                ocr_docs = []
-                for i, img in enumerate(pages, start=1):
-                    try:
-                        text = pytesseract.image_to_string(img)
-                        if text.strip():
-                            # Clean up OCR text
-                            text = ' '.join(text.split())
-                            ocr_docs.append(Document(
-                                page_content=text,
-                                metadata={'source': os.path.basename(path), 'page': i}
-                            ))
-                            print(f"Successfully OCR'd page {i}")
-                    except Exception as e:
-                        print(f"Error processing page {i} of {path}: {str(e)}")
-                        continue
-                if ocr_docs:
-                    print(f"Successfully OCR'd {len(ocr_docs)} pages")
-                    return ocr_docs
-                print("OCR extraction returned no content")
-            except Exception as e:
-                print(f"Error in OCR processing of {path}: {str(e)}")
-
-            print(f"All extraction methods failed for {path}")
+            elif path.lower().endswith(('.ppt', '.pptx')):
+                docs = UnstructuredPowerPointLoader(path).load()
+            else:
+                print(f"Unsupported file type: {path}")
+                return []
+                
+            if any(d.page_content.strip() for d in docs):
+                print(f"Successfully extracted {len(docs)} pages from {path}")
+                # Clean up the extracted text
+                for doc in docs:
+                    content = doc.page_content
+                    # Replace multiple spaces with single space
+                    content = ' '.join(content.split())
+                    # Additional cleanup for presentation files
+                    if path.lower().endswith(('.ppt', '.pptx')):
+                        content = content.replace('•', '- ')  # Fix bullet points
+                    doc.page_content = content
+                return docs
+                
+            print(f"No content extracted from {path}")
             return []
-
-        except Exception as e:
-            print(f"Error processing PDF {path}: {str(e)}")
-            return []
-
-    def _create_or_load_index(self, chunks):
-        """Create or load FAISS index with disk caching for embeddings"""
-        # Path for storing embeddings
-        embeddings_cache_path = os.path.join(self.cache_dir, 'embeddings_cache.pkl')
-        
-        # Try to load cached embeddings
-        cached_embeddings = {}
-        if os.path.exists(embeddings_cache_path):
-            try:
-                with open(embeddings_cache_path, 'rb') as f:
-                    cached_embeddings = pickle.load(f)
-                print(f"Loaded {len(cached_embeddings)} cached embeddings")
-            except Exception as e:
-                print(f"Error loading cached embeddings: {e}")
-        
-        # Identify chunks that need embeddings
-        chunks_to_embed = []
-        for chunk in chunks:
-            chunk_hash = hashlib.md5(chunk.page_content.encode()).hexdigest()
-            if chunk_hash not in cached_embeddings:
-                chunks_to_embed.append((chunk, chunk_hash))
-        
-        # Get embeddings for new chunks only
-        if chunks_to_embed:
-            print(f"Computing embeddings for {len(chunks_to_embed)} new chunks")
-            for chunk, chunk_hash in chunks_to_embed:
-                embedding = self.embeddings.embed_query(chunk.page_content)
-                cached_embeddings[chunk_hash] = embedding
             
-            # Save updated embeddings cache
-            with open(embeddings_cache_path, 'wb') as f:
-                pickle.dump(cached_embeddings, f)
-        
-        # Create index using all embeddings
-        vectors = []
-        metadatas = []
-        texts = []
-        
-        for chunk in chunks:
-            chunk_hash = hashlib.md5(chunk.page_content.encode()).hexdigest()
-            if chunk_hash in cached_embeddings:
-                vectors.append(cached_embeddings[chunk_hash])
-                metadatas.append(chunk.metadata)
-                texts.append(chunk.page_content)
-        
-        return FAISS.from_embeddings(
-            text_embeddings=list(zip(texts, vectors)),
-            embedding=self.embeddings,
-            metadatas=metadatas
-        )
+        except Exception as e:
+            print(f"Error processing file {path}: {str(e)}")
+            return []
 
-    @st.cache_data(show_spinner=False)
-    def process_pdfs(self) -> Tuple[bool, str]:
-        """Load, split, and index all PDFs, using cache when valid to minimize API calls."""
-        if not os.path.isdir(self.pdf_dir):
-            return False, f"Directory not found: {self.pdf_dir}"
+    def _create_index(self, chunks):
+        """Create FAISS index with OpenAI embeddings"""
+        print(f"Creating index with OpenAI embeddings for {len(chunks)} chunks...")
+        return FAISS.from_documents(chunks, self.embeddings)
 
-        pdfs = [f for f in os.listdir(self.pdf_dir) if f.lower().endswith('.pdf')]
-        if not pdfs:
-            return False, "No PDFs found."
+    @st.cache_data(show_spinner=False) 
+    def process_documents(self) -> Tuple[bool, str]:
+        """Load, split, and index all documents, using cache when valid to minimize API calls."""
+        if not os.path.isdir(self.docs_dir):
+            return False, f"Directory not found: {self.docs_dir}"
+
+        # Get all PDF and PPTX files
+        files = [f for f in os.listdir(self.docs_dir) if f.lower().endswith(('.pdf', '.ppt', '.pptx'))]
+        if not files:
+            return False, "No PDF or PPTX files found."
             
         # Check last processing timestamp to prevent frequent reprocessing
         timestamp_file = os.path.join(self.cache_dir, 'last_processed.txt')
         
-        # Add a hash of the PDFs to check if anything changed
-        pdfs_hash_file = os.path.join(self.cache_dir, 'pdfs_hash.txt')
-        current_pdfs_hash = hashlib.md5(str(sorted(pdfs)).encode()).hexdigest()
+        # Add a hash of the files to check if anything changed
+        files_hash_file = os.path.join(self.cache_dir, 'files_hash.txt')
+        current_files_hash = hashlib.md5(str(sorted(files)).encode()).hexdigest()
         
         # If hash exists and matches, use existing index
-        if os.path.exists(pdfs_hash_file) and os.path.exists(os.path.join(self.cache_dir, 'faiss_index')):
-            with open(pdfs_hash_file, 'r') as f:
+        if os.path.exists(files_hash_file) and os.path.exists(os.path.join(self.cache_dir, 'faiss_index')):
+            with open(files_hash_file, 'r') as f:
                 saved_hash = f.read().strip()
-                if saved_hash == current_pdfs_hash:
-                    print("PDFs collection unchanged, using existing index")
+                if saved_hash == current_files_hash:
+                    print("Documents collection unchanged, using existing index")
                     with open(timestamp_file, 'r') as f:
                         last_processed = f.read().strip()
-                    return True, f"Using cached index from {last_processed} for {len(pdfs)} PDFs."
+                    return True, f"Using cached index from {last_processed} for {len(files)} documents."
         
-        # If index exists and no PDFs have changed, use cached index
-        if os.path.exists(timestamp_file) and not self._needs_reindex(pdfs):
+        # If index exists and no files have changed, use cached index
+        if os.path.exists(timestamp_file) and not self._needs_reindex(files):
             with open(timestamp_file, 'r') as f:
                 last_processed = f.read().strip()
-            return True, f"Using cached index from {last_processed} for {len(pdfs)} PDFs."
+            return True, f"Using cached index from {last_processed} for {len(files)} documents."
 
         # Check if we have cached chunks that we can reuse
         cached_chunks = self._load_cached_chunks()
-        if cached_chunks and all(pdf in self.metadata for pdf in pdfs):
-            # Only use cached chunks if we have all PDFs accounted for
+        if cached_chunks and all(file in self.metadata for file in files):
+            # Only use cached chunks if we have all files accounted for
             chunks = cached_chunks
             print(f"Using {len(chunks)} cached chunks to avoid regenerating embeddings")
         else:
-            # Process PDFs from scratch
+            # Process files from scratch
             all_docs: List[Document] = []
-            for pdf in pdfs:
-                path = os.path.join(self.pdf_dir, pdf)
+            for file in files:
+                path = os.path.join(self.docs_dir, file)
                 docs = self._extract_text(path)
                 for d in docs:
-                    d.metadata.setdefault('source', pdf)
+                    d.metadata.setdefault('source', file)
                 all_docs.extend(docs)
-                self.metadata[pdf] = _hash_file(path)
+                self.metadata[file] = _hash_file(path)
 
             if not all_docs:
-                return False, "No text extracted from PDFs."
+                return False, "No text extracted from documents."
 
             chunks = self.text_splitter.split_documents(all_docs)
             print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
@@ -332,7 +232,7 @@ class PDFProcessor:
         
         # Create the index with OpenAI embeddings
         print("Creating index with OpenAI embeddings...")
-        index = self._create_or_load_index(chunks)
+        index = self._create_index(chunks)
         
         index_path = os.path.join(self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)
@@ -341,22 +241,22 @@ class PDFProcessor:
         self.index = index
         self._save_metadata()
         
-        # Save the PDFs hash
-        with open(pdfs_hash_file, 'w') as f:
-            f.write(current_pdfs_hash)
+        # Save the files hash
+        with open(files_hash_file, 'w') as f:
+            f.write(current_files_hash)
         
         # Save timestamp when completed successfully
         with open(timestamp_file, 'w') as f:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             f.write(timestamp)
             
-        return True, f"Indexed {len(pdfs)} PDFs into {len(chunks)} chunks."
+        return True, f"Indexed {len(files)} documents into {len(chunks)} chunks."
 
-    @st.cache_data(show_spinner=False)  # Cache queries for 10 minutes
+    @st.cache_data(show_spinner=False)
     def query(self, text: str, k: int = 5) -> List[Dict]:
         """Perform similarity search on the indexed content."""
         if not self.index:
-            self.process_pdfs()
+            self.process_documents()
         results = self.index.similarity_search(text, k=k)
         return [
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}

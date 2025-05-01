@@ -60,13 +60,13 @@ class DocumentProcessor:
         self.chunks_cache_path = os.path.join(self.cache_dir, 'chunks.pkl')
 
     @st.cache_resource(show_spinner=False)
-    def _load_index(self):
+    def _load_index(_self):
         """Load the index with error handling"""
         try:
-            index_path = os.path.join(self.cache_dir, 'faiss_index')
+            index_path = os.path.join(_self.cache_dir, 'faiss_index')
             if os.path.exists(index_path):
                 try:
-                    return FAISS.load_local(index_path, self.embeddings)
+                    return FAISS.load_local(index_path, _self.embeddings)
                 except Exception as e:
                     print(f"Error loading index: {e}")
                     # If embedding dimension changed or other error, we need to reindex
@@ -77,10 +77,10 @@ class DocumentProcessor:
             print(f"Unexpected error in _load_index: {e}")
             return None
 
-    def _load_metadata(self) -> Dict[str, str]:
-        if os.path.exists(self.meta_path):
+    def _load_metadata(_self) -> Dict[str, str]:
+        if os.path.exists(_self.meta_path):
             try:
-                with open(self.meta_path, 'rb') as f:
+                with open(_self.meta_path, 'rb') as f:
                     return pickle.load(f)
             except Exception:
                 pass
@@ -171,25 +171,25 @@ class DocumentProcessor:
         return FAISS.from_documents(chunks, self.embeddings)
 
     @st.cache_data(show_spinner=False) 
-    def process_documents(self) -> Tuple[bool, str]:
+    def process_documents(_self) -> Tuple[bool, str]:
         """Load, split, and index all documents, using cache when valid to minimize API calls."""
-        if not os.path.isdir(self.docs_dir):
-            return False, f"Directory not found: {self.docs_dir}"
+        if not os.path.isdir(_self.docs_dir):
+            return False, f"Directory not found: {_self.docs_dir}"
 
         # Get all PDF and PPTX files
-        files = [f for f in os.listdir(self.docs_dir) if f.lower().endswith(('.pdf', '.ppt', '.pptx'))]
+        files = [f for f in os.listdir(_self.docs_dir) if f.lower().endswith(('.pdf', '.ppt', '.pptx'))]
         if not files:
             return False, "No PDF or PPTX files found."
             
         # Check last processing timestamp to prevent frequent reprocessing
-        timestamp_file = os.path.join(self.cache_dir, 'last_processed.txt')
+        timestamp_file = os.path.join(_self.cache_dir, 'last_processed.txt')
         
         # Add a hash of the files to check if anything changed
-        files_hash_file = os.path.join(self.cache_dir, 'files_hash.txt')
+        files_hash_file = os.path.join(_self.cache_dir, 'files_hash.txt')
         current_files_hash = hashlib.md5(str(sorted(files)).encode()).hexdigest()
         
         # If hash exists and matches, use existing index
-        if os.path.exists(files_hash_file) and os.path.exists(os.path.join(self.cache_dir, 'faiss_index')):
+        if os.path.exists(files_hash_file) and os.path.exists(os.path.join(_self.cache_dir, 'faiss_index')):
             with open(files_hash_file, 'r') as f:
                 saved_hash = f.read().strip()
                 if saved_hash == current_files_hash:
@@ -199,14 +199,14 @@ class DocumentProcessor:
                     return True, f"Using cached index from {last_processed} for {len(files)} documents."
         
         # If index exists and no files have changed, use cached index
-        if os.path.exists(timestamp_file) and not self._needs_reindex(files):
+        if os.path.exists(timestamp_file) and not _self._needs_reindex(files):
             with open(timestamp_file, 'r') as f:
                 last_processed = f.read().strip()
             return True, f"Using cached index from {last_processed} for {len(files)} documents."
 
         # Check if we have cached chunks that we can reuse
-        cached_chunks = self._load_cached_chunks()
-        if cached_chunks and all(file in self.metadata for file in files):
+        cached_chunks = _self._load_cached_chunks()
+        if cached_chunks and all(file in _self.metadata for file in files):
             # Only use cached chunks if we have all files accounted for
             chunks = cached_chunks
             print(f"Using {len(chunks)} cached chunks to avoid regenerating embeddings")
@@ -214,32 +214,32 @@ class DocumentProcessor:
             # Process files from scratch
             all_docs: List[Document] = []
             for file in files:
-                path = os.path.join(self.docs_dir, file)
-                docs = self._extract_text(path)
+                path = os.path.join(_self.docs_dir, file)
+                docs = _self._extract_text(path)
                 for d in docs:
                     d.metadata.setdefault('source', file)
                 all_docs.extend(docs)
-                self.metadata[file] = _hash_file(path)
+                _self.metadata[file] = _hash_file(path)
 
             if not all_docs:
                 return False, "No text extracted from documents."
 
-            chunks = self.text_splitter.split_documents(all_docs)
+            chunks = _self.text_splitter.split_documents(all_docs)
             print(f"Created {len(chunks)} chunks from {len(all_docs)} documents")
             
             # Cache the chunks to avoid regenerating if embedding fails
-            self._save_cached_chunks(chunks)
+            _self._save_cached_chunks(chunks)
         
         # Create the index with OpenAI embeddings
         print("Creating index with OpenAI embeddings...")
-        index = self._create_index(chunks)
+        index = _self._create_index(chunks)
         
-        index_path = os.path.join(self.cache_dir, 'faiss_index')
+        index_path = os.path.join(_self.cache_dir, 'faiss_index')
         os.makedirs(index_path, exist_ok=True)
         index.save_local(index_path)
 
-        self.index = index
-        self._save_metadata()
+        _self.index = index
+        _self._save_metadata()
         
         # Save the files hash
         with open(files_hash_file, 'w') as f:
@@ -253,11 +253,11 @@ class DocumentProcessor:
         return True, f"Indexed {len(files)} documents into {len(chunks)} chunks."
 
     @st.cache_data(show_spinner=False)
-    def query(self, text: str, k: int = 5) -> List[Dict]:
+    def query(_self, text: str, k: int = 5) -> List[Dict]:
         """Perform similarity search on the indexed content."""
-        if not self.index:
-            self.process_documents()
-        results = self.index.similarity_search(text, k=k)
+        if not _self.index:
+            _self.process_documents()
+        results = _self.index.similarity_search(text, k=k)
         return [
             {'content': doc.page_content, 'source': doc.metadata.get('source'), 'page': doc.metadata.get('page')}
             for doc in results

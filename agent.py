@@ -108,9 +108,14 @@ class PropertyLawAgent:
             # Extract only the sources mentioned in the answer
             used_sources = []
             for doc in relevant_docs:
+                # Remove 'pdf/' prefix from source name for cleaner citation
                 source_name = doc['source']
-                if source_name in answer:
-                    used_sources.append(source_name)
+                clean_source_name = source_name.replace('pdf/', '')
+                
+                # Check if either the full path or clean name is in the answer
+                if source_name in answer or clean_source_name in answer:
+                    # Always add the clean name to sources
+                    used_sources.append(clean_source_name)
 
             # Remove duplicates while preserving order
             used_sources = list(dict.fromkeys(used_sources))
@@ -121,7 +126,7 @@ class PropertyLawAgent:
             
             return {
                 "answer": answer,
-                "sources": used_sources,  # Include all provided sources
+                "sources": used_sources,  # Include clean source names without pdf/ prefix
                 "tokens": {
                     "input": response.usage.prompt_tokens,
                     "output": response.usage.completion_tokens,

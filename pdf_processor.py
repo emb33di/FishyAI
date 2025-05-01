@@ -63,10 +63,10 @@ class DocumentProcessor:
     def _load_index(self):
         """Load the index with error handling"""
         try:
-            index_path = os.path.join(_self.cache_dir, 'faiss_index')
+            index_path = os.path.join(self.cache_dir, 'faiss_index')
             if os.path.exists(index_path):
                 try:
-                    return FAISS.load_local(index_path, _self.embeddings)
+                    return FAISS.load_local(index_path, self.embeddings)
                 except Exception as e:
                     print(f"Error loading index: {e}")
                     # If embedding dimension changed or other error, we need to reindex

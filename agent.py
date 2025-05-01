@@ -124,6 +124,10 @@ class PropertyLawAgent:
             self.chat_history.append({"role": "user", "content": question})
             self.chat_history.append({"role": "assistant", "content": answer})
             
+            # Limit chat history to the last 4 turns (8 messages)
+            if len(self.chat_history) > 8:
+                self.chat_history = self.chat_history[-8:]
+            
             return {
                 "answer": answer,
                 "sources": used_sources,  # Include clean source names without pdf/ prefix

@@ -105,8 +105,15 @@ class PropertyLawAgent:
                     print(f"Error calling OpenAI API: {str(e)}")
                 raise
             
-            # Simply track all sources used in the provided context
-            used_sources = [doc['source'] for doc in relevant_docs]
+            # Extract only the sources mentioned in the answer
+            used_sources = []
+            for doc in relevant_docs:
+                source_name = doc['source']
+                if source_name in answer:
+                    used_sources.append(source_name)
+
+            # Remove duplicates while preserving order
+            used_sources = list(dict.fromkeys(used_sources))
             
             # Update chat history
             self.chat_history.append({"role": "user", "content": question})

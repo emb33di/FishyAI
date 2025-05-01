@@ -60,7 +60,7 @@ class DocumentProcessor:
         self.chunks_cache_path = os.path.join(self.cache_dir, 'chunks.pkl')
 
     @st.cache_resource(show_spinner=False)
-    def _load_index(_self):
+    def _load_index(self):
         """Load the index with error handling"""
         try:
             index_path = os.path.join(_self.cache_dir, 'faiss_index')

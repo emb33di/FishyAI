@@ -206,15 +206,6 @@ def display_message(role, content, sources=None, response_time=None, cost_info=N
         {content}
     """, unsafe_allow_html=True)
     
-    if sources:
-        sources_html = "<br/>".join([f"• {source}" for source in list (set(sources))])
-        st.markdown(f"""
-        <div class="sources-box">
-            <strong>Sources:</strong><br/>
-            {sources_html}
-        </div>
-        """, unsafe_allow_html=True)
-    
     footer_elements = []
     
     if response_time is not None:

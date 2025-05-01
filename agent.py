@@ -37,7 +37,7 @@ class PropertyLawAgent:
             raise
         
         self.pdf_directory = pdf_directory
-        self.pdf_processor = PDFProcessor(pdf_directory)
+        self.pdf_processor = DocumentProcessor(pdf_directory)
         self.chat_history = []
         
     @st.cache_data(show_spinner=False)  # Cache for 1 hour

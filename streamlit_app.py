@@ -156,8 +156,20 @@ if 'agent' not in st.session_state:
             st.session_state.initial_load_message = message
     except Exception as e:
         st.error(f"Error initializing agent: {str(e)}")
-            st.warning(f"Error loading chat history: {str(e)}")
-    return []
+
+# Define function to load chat history
+def load_chat_history(user_id):
+    """Load chat history from file based on user ID"""
+    os.makedirs("pdfs", exist_ok=True)
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    try:
+        if os.path.exists(history_file):
+            with open(history_file, 'r') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        st.warning(f"Error loading chat history: {str(e)}")
+        return []
 
 # Load chat history from file instead of initializing empty
 if 'chat_history' not in st.session_state:

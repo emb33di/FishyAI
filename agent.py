@@ -69,7 +69,7 @@ class PropertyLawAgent:
 
             1. For each statement you make, explicitly cite the source from the context provided.
             2. Use the format: (Source) after each citation listing file name as source.
-            3. Include verbatim quotes from the pdf if citing a legal case. 
+            3. Always include verbatim quotes from the pdf if citing a legal case. 
             4. Each source section begins with "SOURCE:" followed by the filename and then "CONTENT FROM THIS FILE:".
             5. Only cite sources that are actually provided in the context.
             6. If you go beyond provided context, explicitly state "I'm relying on outside context for this information" in your answer.

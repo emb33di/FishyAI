@@ -186,6 +186,16 @@ with st.sidebar:
             st.markdown(f"- {pdf}")
     else:
         st.write("No documents loaded")
+    
+    # Add a clear chat history button
+    st.subheader("Chat Options")
+    if st.button("Clear Chat History", type="secondary"):
+        st.session_state.chat_history = []
+        # Also clear history for the agent
+        st.session_state.agent.chat_history = []
+        # Clear the saved chat history file
+        save_chat_history(st.session_state.user_id, [])
+        st.rerun()  # Rerun the app to reflect the cleared history
 
 # Display initial loading message if exists
 if 'initial_load_message' in st.session_state:

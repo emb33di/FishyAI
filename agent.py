@@ -79,10 +79,22 @@ class PropertyLawAgent:
             {context}
             """
             
-            # Prepare messages for the chat
+            # Before API call, calculate approximate tokens and trim history if needed
+            history_messages = []
+            max_history_tokens = 2000  # Set your budget
+
+            # Add messages until we hit the budget (rough estimation)
+            for msg in reversed(self.chat_history):
+                # Estimate tokens (very roughly)
+                estimated_tokens = len(msg["content"]) / 4  # ~4 chars per token on average
+                if estimated_tokens > max_history_tokens:
+                    break
+                max_history_tokens -= estimated_tokens
+                history_messages.insert(0, msg)  # Add at beginning to maintain order
+
             messages = [
                 {"role": "system", "content": system_message},
-                *[{"role": msg["role"], "content": msg["content"]} for msg in self.chat_history],
+                *[{"role": msg["role"], "content": msg["content"]} for msg in history_messages],
                 {"role": "user", "content": question}
             ]
             

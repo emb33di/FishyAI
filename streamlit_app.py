@@ -136,6 +136,17 @@ def initialize_agent(pdf_directory):
     agent = PropertyLawAgent(pdf_directory)
     return agent
 
+# Define the function to save chat history
+def save_chat_history(user_id, chat_history):
+    """Save chat history to file based on user ID"""
+    os.makedirs("pdfs", exist_ok=True)
+    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
+    try:
+        with open(history_file, 'w') as f:
+            json.dump(chat_history, f)
+    except Exception as e:
+        st.warning(f"Error saving chat history: {str(e)}")
+
 # Initialize session state
 if 'agent' not in st.session_state:
     try:
@@ -145,17 +156,6 @@ if 'agent' not in st.session_state:
             st.session_state.initial_load_message = message
     except Exception as e:
         st.error(f"Error initializing agent: {str(e)}")
-        st.stop()
-
-# Define the function to load chat history
-def load_chat_history(user_id):
-    """Load chat history from file based on user ID"""
-    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
             st.warning(f"Error loading chat history: {str(e)}")
     return []
 
@@ -249,17 +249,6 @@ for message in st.session_state.chat_history:
         sources=message.get("sources"),
         response_time=message.get("response_time")
     )
-
-# Define the function to save chat history
-def save_chat_history(user_id, chat_history):
-    """Save chat history to file based on user ID"""
-    os.makedirs("pdfs", exist_ok=True)
-    history_file = os.path.join("pdfs", f"chat_history_{user_id}.json")
-    try:
-        with open(history_file, 'w') as f:
-            json.dump(chat_history, f)
-    except Exception as e:
-        st.warning(f"Error saving chat history: {str(e)}")
 
 # Chat input
 if prompt := st.chat_input("Ask your question about property law..."):

@@ -10,6 +10,7 @@ from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from datetime import datetime
 import re
+from pypdf import PdfReader
 
 
 def _hash_file(path: str) -> str:
@@ -133,50 +134,73 @@ class DocumentProcessor:
         return False
 
     def _extract_text(self, path: str) -> List[Document]:
-        """Extract text from PDFs with special handling for converted slides"""
+        """Extract text from PDFs with enhanced extraction for legal documents"""
         try:
             print(f"Extracting text from: {path}")
             file_name = os.path.basename(path)
             
             if path.lower().endswith('.pdf'):
-                # Load all PDFs with PyPDFLoader
+                # Try PyPDFLoader first
                 docs = PyPDFLoader(path).load()
                 
-                # Apply special processing for slides converted to PDF
-                if "Slides" in file_name:
-                    print(f"Detected converted slides: {file_name}")
-                    for doc in docs:
-                        content = doc.page_content
-                        
-                        # Handle bullet points better
-                        content = content.replace('•', '- ')
-                        content = re.sub(r'[◦■□▪▫●○]', '- ', content)
-                        
-                        # Fix common formatting issues
+                # Check if content is properly extracted
+                if not any(len(doc.page_content.strip()) > 100 for doc in docs):
+                    print(f"Insufficient content from PyPDFLoader, trying direct PdfReader for {file_name}")
+                    # Try more direct extraction with pypdf
+                    reader = PdfReader(path)
+                    docs = []
+                    for i, page in enumerate(reader.pages):
+                        text = page.extract_text()
+                        if text:
+                            docs.append(Document(
+                                page_content=text,
+                                metadata={"source": file_name, "page": i+1}
+                            ))
+                
+                # Apply special processing based on content type
+                for doc in docs:
+                    content = doc.page_content
+                    
+                    # Enhance case citation detection
+                    content = re.sub(r'([A-Z][a-z]+)\s+v\.\s+([A-Z][a-z]+)', r'\1 v. \2', content)
+                    
+                    # Rest of your existing processing...
+                    if "Slides" in file_name:
+                        # Your slide processing...
+                        if "Slides" in file_name:
+                            print(f"Detected converted slides: {file_name}")
+                            for doc in docs:
+                                content = doc.page_content
+                                
+                                # Handle bullet points better
+                                content = content.replace('•', '- ')
+                                content = re.sub(r'[◦■□▪▫●○]', '- ', content)
+                                
+                                # Fix common formatting issues
+                                content = content.replace('\t', ' ')
+                                content = re.sub(r'\n{2,}', '\n', content)  # Multiple newlines
+                                content = content.replace('\r', '')
+                                
+                                # Fix spacing around punctuation
+                                content = re.sub(r'\s+([.,;:?!])', r'\1', content)
+                                
+                                # Remove slide numbers, footer text and header text patterns
+                                content = re.sub(r'\b\d+\s*/\s*\d+\b', '', content)  # Remove "3/15" style page numbers
+                                
+                                # Remove repeated header/footer text if detected
+                                lines = content.split('\n')
+                                if len(lines) > 3 and any(line.strip() == lines[0].strip() for line in lines[1:]):
+                                    content = '\n'.join(lines[1:])
+                                    
+                                doc.metadata['is_slide'] = True
+                                doc.page_content = content.strip()
+                    else:
+                        # Enhanced standard PDF processing
                         content = content.replace('\t', ' ')
-                        content = re.sub(r'\n{2,}', '\n', content)  # Multiple newlines
-                        content = content.replace('\r', '')
+                        content = re.sub(r'\s+', ' ', content)
                         
-                        # Fix spacing around punctuation
-                        content = re.sub(r'\s+([.,;:?!])', r'\1', content)
-                        
-                        # Remove slide numbers, footer text and header text patterns
-                        content = re.sub(r'\b\d+\s*/\s*\d+\b', '', content)  # Remove "3/15" style page numbers
-                        
-                        # Remove repeated header/footer text if detected
-                        lines = content.split('\n')
-                        if len(lines) > 3 and any(line.strip() == lines[0].strip() for line in lines[1:]):
-                            content = '\n'.join(lines[1:])
-                            
-                        doc.metadata['is_slide'] = True
-                        doc.page_content = content.strip()
-                else:
-                    # Standard PDF processing - basic cleanup
-                    for doc in docs:
-                        content = doc.page_content
-                        content = ' '.join(content.split())  # Basic whitespace normalization
-                        doc.page_content = content.strip()
-                        
+                    doc.page_content = content.strip()
+            
             else:
                 print(f"Unsupported file type: {path}")
                 return []

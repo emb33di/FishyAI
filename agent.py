@@ -68,7 +68,7 @@ class PropertyLawAgent:
             system_message = f"""You are a property law exam assistant. Use the following context to answer questions about property law doctrine.
 
             1. For each statement you make, explicitly cite the source from the context provided.
-            2. Use the format: (Source) after each citation listing file name as source.
+            2. Use the format: (Source) after each sentence where context was used listing file name as source.
             3. Always include verbatim quotes from the pdf if citing a legal case. 
             4. Each source section begins with "SOURCE:" followed by the filename and then "CONTENT FROM THIS FILE:".
             5. Only cite sources that are actually provided in the context.

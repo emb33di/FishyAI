@@ -190,7 +190,17 @@ with st.sidebar:
     st.header("About FishyAI")
     st.markdown("Your AI assistant for property law questions")
     
-    # Add PDF info
+    # Move the clear chat history button to the topar chat history button to the top
+    st.subheader("Chat Options")
+    if st.button("Clear Chat History", type="secondary"):
+        st.session_state.chat_history = []state.chat_history = []
+        # Also clear history for the agentr the agent
+        st.session_state.agent.chat_history = []_history = []
+        # Clear the saved chat history file Clear the saved chat history file
+        save_chat_history(st.session_state.user_id, [])ate.user_id, [])
+        st.rerun()  # Rerun the app to reflect the cleared history    st.rerun()  # Rerun the app to reflect the cleared history
+    
+    # Add PDF info (now after the clear button)e clear button)
     st.subheader("Loaded Documents")
     loaded_pdfs = st.session_state.agent.get_loaded_pdfs()
     if loaded_pdfs:
@@ -198,16 +208,6 @@ with st.sidebar:
             st.markdown(f"- {pdf}")
     else:
         st.write("No documents loaded")
-    
-    # Add a clear chat history button
-    st.subheader("Chat Options")
-    if st.button("Clear Chat History", type="secondary"):
-        st.session_state.chat_history = []
-        # Also clear history for the agent
-        st.session_state.agent.chat_history = []
-        # Clear the saved chat history file
-        save_chat_history(st.session_state.user_id, [])
-        st.rerun()  # Rerun the app to reflect the cleared history
 
 # Display initial loading message if exists
 if 'initial_load_message' in st.session_state:
